@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SQUEEK RUN</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #05081c; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; font-family: "Courier New", Courier, monospace; }
+  #wrap { position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; }
+  canvas { width: 100%; height: 100%; display: block; background: #0a1030; image-rendering: pixelated; }
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(5, 8, 28, 0.72); color: #fff; padding: 20px;
+  }
+  .overlay.hidden { display: none; }
+  h1 { font-size: clamp(40px, 8vw, 84px); letter-spacing: 6px; color: #ffd23f; text-shadow: 4px 4px 0 #1e3fff; }
+  h1 .blue { color: #3b82ff; text-shadow: 4px 4px 0 #0a1030; }
+  .tag { margin-top: 10px; font-size: clamp(13px, 2.4vw, 20px); color: #dbe4ff; letter-spacing: 1px; }
+  .big { margin-top: 26px; font-size: clamp(16px, 3vw, 26px); color: #fff; animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  .small { margin-top: 18px; font-size: clamp(11px, 1.8vw, 15px); color: #8fa3d9; line-height: 1.7; }
+  .score { font-size: clamp(28px, 5vw, 52px); color: #ffd23f; letter-spacing: 2px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="540"></canvas>
+  <div id="title" class="overlay">
+    <h1>SQUEEK<span class="blue">RUN</span></h1>
+    <div class="tag">the hamster runs. the chain follows.</div>
+    <div class="small" id="bestTitle"></div>
+    <div class="big">SPACE / TAP TO START</div>
+    <div class="small">jump the SCAM blocks · grab the blue blocks<br>every 500m mines a block: +6,900 SQK · day & night every 1000m<br>fan game · art by @squeekchain · not official</div>
+  </div>
+  <div id="over" class="overlay hidden">
+    <h1>SQUEEKED OUT.</h1>
+    <div class="tag">the wheel stops when the hamster stops.</div>
+    <div class="score" id="finalScore"></div>
+    <div class="small" id="finalStats"></div>
+    <div class="big">SPACE / TAP TO RUN AGAIN</div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 960, H = 540, GROUND = 460;
+const titleEl = document.getElementById('title');
+const overEl = document.getElementById('over');
+const finalScoreEl = document.getElementById('finalScore');
+const finalStatsEl = document.getElementById('finalStats');
+const bestTitleEl = document.getElementById('bestTitle');
+function getBest() { try { return parseInt(localStorage.getItem('squeek-run-best') || '0', 10) || 0; } catch (e) { return 0; } }
+function setBest(v) { try { localStorage.setItem('squeek-run-best', String(v)); } catch (e) {} }
+if (bestTitleEl) { const b = getBest(); bestTitleEl.textContent = b ? 'BEST: ' + b.toLocaleString() + ' SQK' : 'BEST: —'; }
+const DEMO = new URLSearchParams(location.search).get('demo') === '1';
+
+const avatarA = new Image();
+avatarA.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKgAAACcCAYAAADroOAPAAAFHUlEQVR4nO3dPW7bQBDFcTlIZwRQH/g+PkKOmCP4PkF6AYFrp4kAgREprrmz897s/1ctprCHX8t9omifTsne314+3t9ePo7Wsc11P3/J/OW3O+DIGNuc9/NT1i/uteHPr7/StsGB+35OnUGBR9JO0HtX5PPrr6fWelR/VbCfD3JdvLtx3c/DZtDoDW79+b0OWFZ9jdp+PmrICdorRfZKnVn9VN2uSOFri6zbxNq6SeG2dYTadkWvT0nxkBZ+gvZKkb1SZ1Y/VbdrrR87LmHCpb5GrZ+jyt/iVT4u6a3qdi2VTvGMx4wjlU3xGIMUj6mVTfHUSfFN1FIw9b71KF9H/aJSV9vERh/HEt+oZzxmnMH+G/UYg2/UA3fYf6OeOmk9lFoapb5dH21Yir9u7Oir8fuPP011NWr9jz6OpZ/Fn8/nprFCUnbsP1LZZ/GtM8zvn9+COvkcl/55Fo+plX0Wf7lc/qtfLpfVulpqdul/WbOVlTrP5/PH7TrtUV0tNbv0H2VYio/WK9VmpWP3/qOUSPGtaVctHbv3H8k+xUfPGNHp2L1/UjymZp/iW9OuWjp2739Zs6WWdtXSsXv/UbrPoCpfMsBYUce96wnq8sxaLQW79x+Z7rutIVyeubcixX9Or/UpKR7Sup2gLs+s1VKwe/926d7lmbVaCnbv3yIkAb2R4gVSsHv/pPgN7inYvf81pHhMgRT/oE7/pHhScIH+SfGYEileIAW790+K3+Cegt37X0OKxxRI8Q/q9E+KJwUX6D8qxXd/L1766kGYqOPOe/ECKdi9/0i8F/8AKX4b78VjarwX/6BO/6ZpvRUpuHb/Ucr8dbvrWuv59SLxc7J+b1b/UUqk+F7pOKtP9/4j2af4NS5/432NS/+keEzNPsX3SsdZfbr3v6zZcnlGn9Wne/9Ryv+/+LVU65J21foffRz5f/GMd48zpK0hsjccbbLugKR4SOP/xVPfVV/WpqGWmqlv10dLfxa/dnVOfdUOpL7/rdagCkm20tiBxFWyh9uOVacyQz5iNYNiPjYnqFqqda8va+hELdW619XZzKDQMPoCsDpBFZJvpXGrjE8JbNYijrcnZa3r0Nb932udazWDYj42J6haCnavL2uP8CnBTmop2L3eipD0j+vHIm6yTui9JE9QhYTLOG7cQm6twKxZW+v6VHIGBa7kTlC1tEud7wDcpZZ2qfet75U+g5LWsYX34hkPH7fgvXgMRYpHKbwXT31ofVmTp5YuqY+p75X+XjxqOzprkuIZh417IMUjBN+oxxRI8dRD6suaLbV0Sb1v/ShSPJqszY5RsyYpnvHucQZSPHbJWleS4iGNFE99V31Zm4Za6qS+XR+NWzykkeIZ7x5nIMVjF1I8cAcpnvqu+rI2DbWUSn27Plr6s/ipr05hKsdFcg2qkFhnHiuRuEpuqe6oWajMnFeSMyhwJXeCqqXX2erLGlaopdfZ6irSU/waruYx1Pez3C1+i0LCrTR2IH313HLbserUZ84rqxkU87E5QdXSrnt9WUMnamnXva5ONsWv4er/HNf9ZnOL36KQiJXHziyvqltVDkQU15nzqsQMirrsT1C1dKxWX9aQRC0dq9Vd2aX4LGuzUa867rO/xZ9O/inYvf9I9ldz9IGInvHc+49WYgZFXfYnqHsKdu8fO7mnYPf+o9jPoKitxAnqnoLd+49kv0ZxT8Hu/UcrMYOiLvsT1D0Fu/ePndxTsHv/AAAAAAAAAAAAAADAw18ks7t0QJR0cAAAAABJRU5ErkJggg==';
+const avatarB = new Image();
+avatarB.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKgAAACcCAYAAADroOAPAAAFHElEQVR4nO3dQW7bMBCF4aToLijgfZH75Ag9Yo+Q+xTdGyiyTjcVYKimJFoc8j3O/62IWTRjmqL5Iqt5ehrs4/318+P99fNsHdtc5/nLyB9+OwFnxtjmPM/Po35wqxf+8vZr2Gtw4D7PQ3dQYM+wBXrvinx5+/VcW4/qbxbM80muh3c3rvPcbQeNfsG1/36rN2xUvURtns/qskBbpchWqXNUP7O+rkjhZ4tRHxOlc5PCx9YZaq8r+nxKioe08AXaKkW2Sp2j+pn1dZX6seMSJlzqJWr9nDX9R7zKr0tam/V1rU2d4hn3GUeaNsWjD1I8Ups2xVMnxVdRS8HU29ajfO31g6a62hLr/T5O8Y16xn3GI9h/ox598I164A77b9RTJ62HUkuj1LfrvXVL8cuL7X01fv/xp6quRq3/3u/j1PfiL5dL1VghKTv2H2nae/G1O8zvn9+COnmMS//ci0dq096Lv16v/9Wv12uxrpaaXfpf12yNSp2Xy+Xz9py2V1dLzS79R+mW4qO1SrWj0rF7/1GmSPG1aVctHbv3H8k+xUfvGNHp2L1/UjxSs0/xtWlXLR2797+u2VJLu2rp2L3/KM13UJUvGaCvqPe96QJ1uWetloLd+49M983OEC733GuR4h/T6nxKioe0ZgvU5Z61Wgp2798u3bvcs1ZLwe79W4QkoDVSvEAKdu+fFL/BPQW7919CikcKpPidOv2T4knBE/RPikdKpHiBFOzePyl+g3sKdu+/hBSPFEjxO3X6J8WTgifoPyrFN38uXvrqQZio953n4gVSsHv/kXgufgcpfhvPxSM1novfqdO/aVqvRQqeu/8o0/zvdstZ6+XtKvHvjPq5o/qPMkWKb5WOR/Xp3n8k+xRf4vJ/vJe49E+KR2r2Kb5VOh7Vp3v/65otl3v0o/p07z/K9H8vvpRqXdKuWv+930f+Xjzjw+MRhp0hRr9w1Bn1CUiKhzT+Xjz1Q/V1LQ211Ex9u97b8Hvxpasz9VXbkfr8W51BFZLsTGMHElfJEW4Tq05lh9xjtYMiH5sFqpZq3evrGhpRS7XudXU2Oyg09L4ArBaoQvKdaVxrxG8JbM4ijh9PymrPobXz3+qca7WDIh+bBaqWgt3r69oefktwkFoKdq/XIiT94/prETejFvRRkgtUIeEyjhvXkDsrsGvOrfZ8KrmDAgu5BaqWdqnzHYC71NIu9bb1o4bvoKR1bOG5eMbdxzV4Lh5dkeIxFZ6Lp961vq7JU0uX1PvUjxr+XDzmdnbXJMUzDhu3QIpHCL5RjxRI8dRD6uuaLbV0Sb1t/SxSPKqUdseoXZMUz/jweARSPA4Zda4kxUMaKZ76ofq6loZa6qS+Xe+Nj3hII8UzPjwegRSPQ0jxwB2keOqH6utaGmoplfp2vbfh9+JTX53CVN4XyTOoQmLNPFYicZXcUp2oLFR2zoXkDgos5BaoWnrNVl/XUKCWXrPVVQxP8SVczX2oz7PcR/wWhYQ709iB9NVzy21i1anvnAurHRT52CxQtbTrXl/X0Iha2nWvq5PdQV0n1I36PEsuUIWEm3msRO4sojpRWaidTyV3UGAht0DV0m62+rqGArW0m62uQvZefLTSbuFSz0LuI/7pKVdKfUSm+ZG7OqMnyn1HyjY/kjsosJBboKTUbcyPiCwp9VFZ5kduBwVuSS7QTCn1EZnmR+7MkS2l1so2P5I7KLCQW6Ck1G3Mj4gsKfVRzA8AAAAAAAAAAAAAAHjEX7Uv/0zW7fFnAAAAAElFTkSuQmCC';
+
+let state = 'title'; // title | play | over
+let frame = 0, speed = 5, dist = 0, sqk = 0, blocks = 0;
+let py = GROUND - 72, vy = 0, grounded = true, bob = 0;
+let obstacles = [], coins = [], floats = [], flash = '', flashT = 0;
+let overT = 0;
+
+function reset() {
+  frame = 0; speed = 5; dist = 0; sqk = 0; blocks = 0;
+  py = GROUND - 72; vy = 0; grounded = true;
+  obstacles = []; coins = []; floats = []; flash = ''; flashT = 0; overT = 0;
+}
+function start() {
+  reset();
+  state = 'play';
+  titleEl.classList.add('hidden');
+  overEl.classList.add('hidden');
+}
+function gameOver() {
+  state = 'over'; overT = 0;
+  finalScoreEl.textContent = sqk.toLocaleString() + ' SQK';
+  const best = Math.max(getBest(), sqk); setBest(best);
+  finalStatsEl.textContent = 'blocks mined: ' + blocks + ' · distance: ' + Math.floor(dist) + 'm · best: ' + best.toLocaleString() + ' SQK';
+  overEl.classList.remove('hidden');
+}
+function jump() {
+  if (state === 'title') { start(); return; }
+  if (state === 'over') { start(); return; }
+  if (grounded) { vy = -17; grounded = false; }
+}
+addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
+});
+addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+
+function spawnObstacle() {
+  const h = 40 + Math.random() * 32;
+  const w = 34 + Math.random() * 26;
+  obstacles.push({ x: W + 20, y: GROUND - h, w, h });
+}
+function spawnCoin() {
+  const air = Math.random() < 0.5;
+  coins.push({ x: W + 20, y: air ? GROUND - 150 : GROUND - 40, s: 30, taken: false });
+}
+function isDayTheme() { return Math.floor(dist / 1000) % 2 === 1; }
+function drawBackground() {
+  const day = isDayTheme();
+  ctx.fillStyle = day ? '#9ec9ee' : '#0a1030';
+  ctx.fillRect(0, 0, W, H);
+  if (day) {
+    ctx.fillStyle = 'rgba(255, 210, 63, 0.35)';
+    ctx.beginPath(); ctx.arc(860, 80, 48, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(860, 80, 32, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#e8eefc';
+    ctx.beginPath(); ctx.arc(860, 80, 30, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = day ? 'rgba(30, 60, 120, 0.25)' : 'rgba(59, 90, 255, 0.30)';
+  const off = (dist * 10) % 28;
+  for (let x = -28 + off; x < W; x += 28)
+    for (let y = 12; y < GROUND; y += 28) {
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  ctx.fillStyle = day ? '#2e4a6b' : '#141c46';
+  ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = day ? '#ffd23f' : '#3b82ff';
+  ctx.fillRect(0, GROUND, W, 4);
+  ctx.fillStyle = day ? 'rgba(255, 210, 63, 0.5)' : 'rgba(59, 130, 255, 0.5)';
+  for (let x = -28 + off; x < W; x += 28) ctx.fillRect(x, GROUND + 22, 10, 3);
+}
+function drawPlayer() {
+  bob += 0.25;
+  const b = grounded ? Math.sin(bob) * 2 : 0;
+  const img = (grounded && Math.floor(frame / 6) % 2 === 1) ? avatarB : avatarA;
+  if (img.complete && img.naturalWidth) {
+    ctx.drawImage(img, 114, py - 6 + b, 84, 78);
+  } else {
+    ctx.fillStyle = '#ffb020';
+    ctx.fillRect(120, py, 72, 72);
+  }
+}
+function drawObstacles() {
+  for (const o of obstacles) {
+    ctx.fillStyle = '#ff3b30';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.strokeStyle = '#7a0d08';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = '#ff3b30';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SCAM', o.x + o.w / 2, o.y - 8);
+  }
+}
+function drawCoins() {
+  for (const c of coins) {
+    if (c.taken) continue;
+    ctx.fillStyle = '#3b82ff';
+    ctx.fillRect(c.x, c.y, c.s, c.s);
+    ctx.strokeStyle = '#bcd6ff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(c.x, c.y, c.s, c.s);
+  }
+}
+function drawHUD() {
+  const day = isDayTheme();
+  ctx.fillStyle = day ? '#7a4d00' : '#ffd23f';
+  ctx.font = 'bold 26px "Courier New", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(sqk.toLocaleString() + ' SQK', 20, 40);
+  ctx.fillStyle = day ? '#0a1030' : '#dbe4ff';
+  ctx.font = 'bold 17px "Courier New", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('BLOCKS ' + blocks + ' · ' + Math.floor(dist) + 'm · ' + (day ? 'DAY' : 'NIGHT'), W - 20, 38);
+  if (flashT > 0) {
+    ctx.fillStyle = day ? '#7a4d00' : '#ffd23f';
+    ctx.font = 'bold 30px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(flash, W / 2, 120);
+    flashT--;
+  }
+  ctx.textAlign = 'left';
+  for (const f of floats) {
+    ctx.fillStyle = day ? '#005a8a' : '#7fd8ff';
+    ctx.font = 'bold 16px "Courier New", monospace';
+    ctx.fillText(f.text, f.x, f.y);
+  }
+}
+function step() {
+  requestAnimationFrame(step);
+  if (state === 'title') { drawBackground(); drawPlayer(); return; }
+  if (state === 'over') {
+    overT++;
+    drawBackground(); drawPlayer();
+    if (DEMO && overT > 90) start();
+    return;
+  }
+  frame++;
+  dist += speed / 10;
+  if (speed < 12) speed += 0.001;
+  const nextBlockAt = (blocks + 1) * 500;
+  if (dist >= nextBlockAt) {
+    blocks++;
+    sqk += 6900;
+    flash = 'BLOCK MINED +6,900 SQK';
+    flashT = 90;
+  }
+  // physics
+  if (!grounded) {
+    vy += 0.9;
+    py += vy;
+    if (py >= GROUND - 72) { py = GROUND - 72; vy = 0; grounded = true; }
+  }
+  // spawn
+  if (frame >= 120 && frame % 100 === 0) spawnObstacle();
+  if (frame % 150 === 0) spawnCoin();
+  // demo autopilot: jump when the obstacle will reach the player in ~6 frames,
+  // so the jump arc covers the whole overlap window at any speed
+  if (DEMO && grounded) {
+    const near = obstacles.find(o => o.x + o.w > 120 && (o.x - 182) / speed <= 6 && o.x > 120);
+    if (near) jump();
+  }
+  // move + collide
+  const px = 120, pw = 72, ph = 72;
+  for (const o of obstacles) {
+    o.x -= speed;
+    if (px + 16 < o.x + o.w && px + pw - 16 > o.x && py + 14 < o.y + o.h && py + ph > o.y) {
+      gameOver();
+      return;
+    }
+  }
+  for (const c of coins) {
+    c.x -= speed;
+    if (!c.taken && px < c.x + c.s && px + pw > c.x && py < c.y + c.s && py + ph > c.y) {
+      c.taken = true;
+      sqk += 500;
+      floats.push({ text: '+500', x: c.x, y: c.y });
+    }
+  }
+  for (const f of floats) { f.y -= 1; }
+  floats = floats.filter(f => f.y > 0);
+  obstacles = obstacles.filter(o => o.x + o.w > -20);
+  coins = coins.filter(c => c.x + c.s > -20 && !c.taken);
+  drawBackground();
+  drawCoins();
+  drawObstacles();
+  drawPlayer();
+  drawHUD();
+}
+if (DEMO) {
+  // autoplay: start after the sprites load, or after a short delay
+  const go = () => setTimeout(start, 600);
+  if (avatarA.complete) go(); else avatarA.onload = go;
+}
+requestAnimationFrame(step);
+</script>
+</body>
+</html>
