@@ -23,6 +23,9 @@
   @keyframes blink { 50% { opacity: 0.25; } }
   .small { margin-top: 18px; font-size: clamp(11px, 1.8vw, 15px); color: #8fa3d9; line-height: 1.7; }
   .score { font-size: clamp(28px, 5vw, 52px); color: #ffd23f; letter-spacing: 2px; margin-top: 8px; }
+  .cardbtn { margin: 6px 4px 0; padding: 8px 14px; font-family: "Courier New", Courier, monospace; font-size: 14px; font-weight: bold; color: #05081c; background: #ffd23f; border: 0; cursor: pointer; text-decoration: none; display: inline-block; }
+  .cardbtn.share { background: #3b82ff; color: #fff; }
+  #shareToast { margin-top: 10px; color: #7dff8a; }
 </style>
 </head>
 <body>
@@ -32,14 +35,25 @@
     <h1>SQUEEK<span class="blue">RUN</span></h1>
     <div class="tag">the hamster runs. the chain follows.</div>
     <div class="small" id="bestTitle"></div>
+    <div class="small" id="liveTitle">LIVE: connecting to Squeekchain…</div>
     <div class="big">SPACE / TAP TO START</div>
-    <div class="small">jump the SCAM blocks · grab the blue blocks<br>every 500m mines a block: +6,900 SQK · day & night every 1000m<br>fan game · art by @squeekchain · not official</div>
+    <div class="small">survive as many LIVE blocks as you can · jump the SCAM blocks and the WORMs · grab the blue blocks<br>birds bob up and down overhead, lower and faster now — run under them, don't jump into them · every 500m mines a block: +6,900 SQK · speed starts 8.0, +0.5 every 250m, capped at 13.0 · day & night every 1000m<br>every real block that settles while you run counts as a round survived · fan game · art by @squeekchain · not official</div>
   </div>
   <div id="over" class="overlay hidden">
     <h1>SQUEEKED OUT.</h1>
     <div class="tag">the wheel stops when the hamster stops.</div>
     <div class="score" id="finalScore"></div>
     <div class="small" id="finalStats"></div>
+    <div class="small" id="cardsOver"></div>
+    <div id="cardButtons"></div>
+    <div class="small hidden" id="shareToast">Share text copied — paste it in X and attach the downloaded card image.</div>
+    <div class="big">SPACE / TAP TO RUN AGAIN</div>
+  </div>
+  <div id="win" class="overlay hidden">
+    <h1>LIVE BLOCK SETTLED.</h1>
+    <div class="tag">you survived until a real block settled.</div>
+    <div class="score" id="winScore"></div>
+    <div class="small" id="winStats"></div>
     <div class="big">SPACE / TAP TO RUN AGAIN</div>
   </div>
 </div>
@@ -55,6 +69,272 @@ const bestTitleEl = document.getElementById('bestTitle');
 function getBest() { try { return parseInt(localStorage.getItem('squeek-run-best') || '0', 10) || 0; } catch (e) { return 0; } }
 function setBest(v) { try { localStorage.setItem('squeek-run-best', String(v)); } catch (e) {} }
 if (bestTitleEl) { const b = getBest(); bestTitleEl.textContent = b ? 'BEST: ' + b.toLocaleString() + ' SQK' : 'BEST: —'; }
+
+// ---- LIVE RACE: powered by Squeekchain's real API ----
+// GET https://api.squeekchain.com/v1/status (public, no wallet, no key, CORS: *)
+// Fields used: measurement.distanceMm, measurement.speedMmPerSecond,
+// measurement.cumulativeWorkUnits, builder.anchor.blockHeight,
+// builder.anchor.settledThroughRound. Polled every 5s during a run.
+// WIN CONDITION (not a speed race — the arcade runner is ~30x faster
+// than the real hamster at ~1 m/s, so raw speed is not the contest):
+// survive real settled blocks, continuously. At run start we snapshot
+// the settled blockHeight; every time a poll sees it rise, that counts
+// as one live round survived and the target moves to the next block.
+// The run only ends when you hit a SCAM block. Polling runs all the
+// time — title screen, play, win and game-over — every 5s, and never
+// stops. If the API is unreachable the game still plays offline and
+// says so plainly instead of faking live data.
+const LIVE_API = 'https://api.squeekchain.com/v1/status';
+const liveTitleEl = document.getElementById('liveTitle');
+const winEl = document.getElementById('win');
+const winScoreEl = document.getElementById('winScore');
+const winStatsEl = document.getElementById('winStats');
+let live = { ok: false, block: null, distMm: null, speedMps: null, work: null, round: null, updatedAt: 0 };
+let liveStart = null; // { block, distMm } snapshot at run start
+let liveTargetBlock = null; // liveStart.block + 1: the next real block to survive to
+let liveBlocksSettled = 0;
+let liveGainM = 0;
+let livePollTimer = null;
+let winT = 0;
+function updateLiveTitle() {
+  if (!liveTitleEl) return;
+  if (live.ok && live.block != null) {
+    const d = live.distMm != null ? (live.distMm / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 }) + 'm' : '—';
+    const s = live.speedMps != null ? live.speedMps.toFixed(2) + ' m/s' : '—';
+    liveTitleEl.textContent = 'LIVE BLOCK #' + live.block + ' · HAMSTER ' + d + ' · ' + s + ' · ROUND ' + (live.round != null ? live.round : '—');
+  } else {
+    liveTitleEl.textContent = 'LIVE: OFFLINE — local mode (api.squeekchain.com unreachable)';
+  }
+}
+async function fetchLive() {
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5000);
+    const r = await fetch(LIVE_API, { signal: c.signal, cache: 'no-store' });
+    clearTimeout(t);
+    if (!r.ok) throw new Error('http ' + r.status);
+    const d = await r.json();
+    const m = d.measurement || {};
+    const b = d.builder || {};
+    const a = b.anchor || {};
+    const block = a.blockHeight != null ? parseInt(a.blockHeight, 10) : null;
+    live = {
+      ok: true, block,
+      distMm: m.distanceMm != null ? Number(m.distanceMm) : null,
+      speedMps: m.speedMmPerSecond != null ? Number(m.speedMmPerSecond) / 1000 : null,
+      work: m.cumulativeWorkUnits != null ? Number(m.cumulativeWorkUnits) : null,
+      round: a.settledThroughRound != null ? parseInt(a.settledThroughRound, 10) : null,
+      updatedAt: Date.now()
+    };
+    updateLiveTitle();
+    return live;
+  } catch (e) {
+    live.ok = false;
+    updateLiveTitle();
+    return null;
+  }
+}
+function snapshotLiveStart() {
+  if (live.ok && live.distMm != null && live.block != null) {
+    liveStart = { block: live.block, distMm: live.distMm };
+    liveTargetBlock = live.block + 1;
+  } else {
+    liveStart = null;
+    liveTargetBlock = null;
+  }
+  liveBlocksSettled = 0;
+  liveGainM = 0;
+}
+function startLivePoll() {
+  if (livePollTimer) return; // poll continuously, never restart/stop it
+  livePollTimer = setInterval(async () => {
+    await fetchLive();
+    if (!live.ok || !liveStart || liveTargetBlock == null) return;
+    if (live.distMm != null) liveGainM = Math.max(0, (live.distMm - liveStart.distMm) / 1000);
+    if (state === 'play' && live.block != null && live.block >= liveTargetBlock) {
+      liveBlocksSettled++;
+      flash = 'LIVE BLOCK #' + live.block + ' SETTLED · ROUND ' + liveBlocksSettled + ' SURVIVED';
+      flashT = 120;
+      liveTargetBlock = live.block + 1;
+    }
+  }, 5000);
+}
+function stopLivePoll() { /* polling is continuous now: intentionally never stops */ }
+fetchLive();
+startLivePoll();
+
+// ---- MILESTONE SHARE CARDS: 1 card per 6,900 game SQK, unlimited ----
+// These are OFF-CHAIN game milestone cards (a downloadable PNG you can
+// share on X), NOT on-chain NFTs: this single file mints nothing, holds
+// no wallet and pays no gas. Serial numbers are sequential across all
+// your runs (localStorage 'squeek-run-cards'), so there is no cap.
+const MILESTONE_SQK = 6900;
+const cardsOverEl = document.getElementById('cardsOver');
+const cardButtonsEl = document.getElementById('cardButtons');
+let cardsThisRun = [];
+let lastMilestoneCount = 0;
+function getTotalCards() { try { return parseInt(localStorage.getItem('squeek-run-cards') || '0', 10) || 0; } catch (e) { return 0; } }
+function setTotalCards(v) { try { localStorage.setItem('squeek-run-cards', String(v)); } catch (e) {} }
+function checkMilestones() {
+  // Only the LATEST milestone level gets a card, issued once at game over
+  // (see issueLatestCard). During play we only track the count, so earlier
+  // levels are never issued as cards.
+  const count = Math.floor(sqk / MILESTONE_SQK);
+  if (count > lastMilestoneCount) {
+    lastMilestoneCount = count;
+    flash = 'MILESTONE REACHED: ' + (count * MILESTONE_SQK).toLocaleString() + ' SQK';
+    flashT = 120;
+  }
+}
+function issueLatestCard() {
+  if (lastMilestoneCount <= 0) { cardsThisRun = []; return; }
+  const serial = getTotalCards() + 1;
+  setTotalCards(serial);
+  cardsThisRun = [{
+    n: serial, sqk: sqk, milestoneSqk: lastMilestoneCount * MILESTONE_SQK,
+    dist: Math.floor(dist), blocks, liveBlock: live.block,
+    rounds: liveBlocksSettled, date: new Date().toISOString().slice(0, 10)
+  }];
+}
+// ---- 999 TRAITS: fur / shape / eyes / accessory, on the hamster itself ----
+// Same mapping as the v2 samples: 9 fur x 3 shape x 3 eyes x 6 acc x 3 bg
+// = 1,458 combos; serials 1..999 verified unique, 0 collisions.
+const FURS = [
+  { name: 'yellow', rgb: [245, 184, 29] }, { name: 'orange', rgb: [255, 120, 40] },
+  { name: 'pink', rgb: [255, 130, 180] }, { name: 'mint', rgb: [80, 220, 160] },
+  { name: 'sky', rgb: [80, 170, 255] }, { name: 'lavender', rgb: [180, 140, 255] },
+  { name: 'white', rgb: [240, 240, 235] }, { name: 'brown', rgb: [170, 110, 60] },
+  { name: 'grey', rgb: [150, 150, 160] }
+];
+const SHAPES = [{ name: 'normal', sx: 1, sy: 1 }, { name: 'chubby', sx: 1.28, sy: 0.92 }, { name: 'slim', sx: 0.85, sy: 1.12 }];
+const EYE_TRAITS = ['normal', 'sleepy', 'wink'];
+const ACC_TRAITS = ['none', 'bow', 'crown', 'hat', 'scarf', 'sunglasses'];
+const CARD_BGS = ['#05081c', '#1a2e5c', '#3a1a2e'];
+function traitsFor(n) {
+  const i = n - 1;
+  return {
+    fur: FURS[i % 9],
+    shape: SHAPES[Math.floor(i / 9) % 3],
+    eyes: EYE_TRAITS[Math.floor(i / 27) % 3],
+    acc: ACC_TRAITS[Math.floor(i / 81) % 6],
+    bg: CARD_BGS[Math.floor(i / 486) % 3]
+  };
+}
+const _tintCache = {};
+function tintedHamster(fur) {
+  if (_tintCache[fur.name]) return _tintCache[fur.name];
+  const t = document.createElement('canvas');
+  t.width = 168; t.height = 156;
+  const tg = t.getContext('2d');
+  tg.drawImage(avatarA, 0, 0);
+  const img = tg.getImageData(0, 0, 168, 156);
+  const d = img.data;
+  for (let p = 0; p < d.length; p += 4) {
+    if (d[p] === 245 && d[p + 1] === 184 && d[p + 2] === 29) { d[p] = fur.rgb[0]; d[p + 1] = fur.rgb[1]; d[p + 2] = fur.rgb[2]; }
+  }
+  tg.putImageData(img, 0, 0);
+  _tintCache[fur.name] = t;
+  return t;
+}
+function drawMilestoneCard(card) {
+  const c = document.createElement('canvas');
+  c.width = 1080; c.height = 1080;
+  const g = c.getContext('2d');
+  const tr = traitsFor(card.n);
+  const furCss = 'rgb(' + tr.fur.rgb.join(',') + ')';
+  g.fillStyle = tr.bg; g.fillRect(0, 0, 1080, 1080);
+  g.strokeStyle = '#ffd23f'; g.lineWidth = 10; g.strokeRect(30, 30, 1020, 1020);
+  g.fillStyle = '#ffd23f'; g.font = 'bold 84px "Courier New", monospace'; g.textAlign = 'center';
+  g.fillText('SQUEEK RUN', 540, 150);
+  g.fillStyle = '#3b82ff'; g.font = 'bold 44px "Courier New", monospace';
+  g.fillText('MILESTONE CARD #' + card.n, 540, 215);
+  // hamster, recolored + reshaped, centred in a fixed box (y 250..510)
+  const hw = 240 * tr.shape.sx, hh = 222 * tr.shape.sy;
+  const hx = 540 - hw / 2, hy = 250 + (260 - hh) / 2;
+  if (avatarA.complete && avatarA.naturalWidth) g.drawImage(tintedHamster(tr.fur), hx, hy, hw, hh);
+  const sx = hw / 168, sy = hh / 156;
+  const ex1 = hx + 64 * sx, ex2 = hx + 110 * sx, ey = hy + 45 * sy;
+  const cx = hx + hw / 2;
+  // eyes trait (drawn over the sprite, in fur colour)
+  if (tr.eyes === 'sleepy' || tr.eyes === 'wink') {
+    g.fillStyle = furCss;
+    g.fillRect(ex2 - 22 * sx, ey - 6 * sy, 44 * sx, 8 * sy);
+    if (tr.eyes === 'sleepy') g.fillRect(ex1 - 22 * sx, ey - 6 * sy, 44 * sx, 8 * sy);
+  }
+  // accessory, anchored to the hamster
+  if (tr.acc === 'bow') {
+    g.fillStyle = '#ff3b30';
+    g.beginPath(); g.moveTo(cx - 78 * sx, hy + 6 * sy); g.lineTo(cx - 38 * sx, hy + 22 * sy); g.lineTo(cx - 78 * sx, hy + 38 * sy); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(cx - 30 * sx, hy + 6 * sy); g.lineTo(cx - 70 * sx, hy + 22 * sy); g.lineTo(cx - 30 * sx, hy + 38 * sy); g.closePath(); g.fill();
+    g.beginPath(); g.arc(cx - 50 * sx, hy + 22 * sy, 10 * sx, 0, Math.PI * 2); g.fill();
+  } else if (tr.acc === 'crown') {
+    g.fillStyle = '#ffd23f';
+    g.beginPath(); g.moveTo(cx - 45 * sx, hy + 28 * sy); g.lineTo(cx - 45 * sx, hy); g.lineTo(cx - 22 * sx, hy + 16 * sy); g.lineTo(cx, hy - 2 * sy); g.lineTo(cx + 22 * sx, hy + 16 * sy); g.lineTo(cx + 45 * sx, hy); g.lineTo(cx + 45 * sx, hy + 28 * sy); g.closePath(); g.fill();
+  } else if (tr.acc === 'hat') {
+    g.fillStyle = '#ff6b9d';
+    g.beginPath(); g.moveTo(cx - 48 * sx, hy + 32 * sy); g.lineTo(cx, hy - 6 * sy); g.lineTo(cx + 48 * sx, hy + 32 * sy); g.closePath(); g.fill();
+    g.fillRect(cx - 48 * sx, hy + 32 * sy, 96 * sx, 10 * sy);
+  } else if (tr.acc === 'scarf') {
+    g.fillStyle = '#3b82ff';
+    g.fillRect(cx - 62 * sx, hy + hh - 42 * sy, 124 * sx, 18 * sy);
+  } else if (tr.acc === 'sunglasses') {
+    g.fillStyle = '#000';
+    g.fillRect(ex1 - 26 * sx, ey - 10 * sy, 52 * sx, 22 * sy);
+    g.fillRect(ex2 - 26 * sx, ey - 10 * sy, 52 * sx, 22 * sy);
+    g.fillRect(ex1 + 26 * sx, ey - 2 * sy, (ex2 - ex1 - 52) * sx, 4 * sy);
+  }
+  g.fillStyle = '#fff'; g.font = 'bold 40px "Courier New", monospace'; g.textAlign = 'center';
+  g.fillText(tr.fur.name.toUpperCase() + ' · ' + tr.shape.name.toUpperCase(), 540, 590);
+  g.fillStyle = '#dbe4ff'; g.font = 'bold 34px "Courier New", monospace';
+  g.fillText(tr.eyes.toUpperCase() + ' EYES · ' + tr.acc.toUpperCase(), 540, 640);
+  g.fillStyle = '#ffd23f'; g.font = 'bold 96px "Courier New", monospace';
+  g.fillText(card.milestoneSqk.toLocaleString() + ' SQK', 540, 760);
+  g.fillStyle = '#dbe4ff'; g.font = 'bold 36px "Courier New", monospace'; g.textAlign = 'left';
+  g.fillText('distance: ' + card.dist + 'm · blocks mined: ' + card.blocks, 140, 840);
+  g.fillText('live block: #' + (card.liveBlock != null ? card.liveBlock : '—') + ' · rounds: ' + card.rounds, 140, 892);
+  g.fillText('date: ' + card.date, 140, 944);
+  g.fillStyle = '#8fa3d9'; g.font = '28px "Courier New", monospace'; g.textAlign = 'center';
+  g.fillText('Game milestone card · not an on-chain NFT', 540, 985);
+  g.fillText('fan game · art by @squeekchain · game.yumer.site', 540, 1020);
+  return c;
+}
+function downloadCard(card) {
+  const a = document.createElement('a');
+  a.href = drawMilestoneCard(card).toDataURL('image/png');
+  a.download = 'squeek-run-card-' + card.n + '.png';
+  a.click();
+}
+function shareText(card) {
+  return 'I unlocked SQUEEK RUN Milestone Card #' + card.n + ' — ' + card.milestoneSqk.toLocaleString() + ' SQK, ' + card.dist + 'm, live block #' + (card.liveBlock != null ? card.liveBlock : '—') + ' @squeekchain https://game.yumer.site';
+}
+function copyShareText(card) {
+  const text = shareText(card);
+  const done = () => { const t = document.getElementById('shareToast'); if (t) t.classList.remove('hidden'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done).catch(() => {}); }
+  else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) {} ta.remove(); }
+}
+function renderCardButtons() {
+  if (cardsOverEl) cardsOverEl.textContent = cardsThisRun.length ? 'MILESTONE CARD THIS RUN: #' + cardsThisRun[0].n + ' — ' + cardsThisRun[0].milestoneSqk.toLocaleString() + ' SQK (latest level only)' : 'No milestone card this run — reach 6,900 SQK for one.';
+  if (!cardButtonsEl) return;
+  cardButtonsEl.innerHTML = '';
+  for (const card of cardsThisRun) {
+    const d = document.createElement('button');
+    d.className = 'cardbtn'; d.textContent = 'DOWNLOAD CARD #' + card.n;
+    d.onclick = () => downloadCard(card);
+    cardButtonsEl.appendChild(d);
+    // SHARE is a real link now, not window.open: the old window.open call
+    // is blocked as a popup in many mobile / in-app browsers, which is why
+    // tapping SHARE did nothing. A link opens X directly; the text is also
+    // copied to the clipboard as a fallback, and the image still has to be
+    // attached by hand — X's share link cannot attach an image by itself.
+    const s = document.createElement('a');
+    s.className = 'cardbtn share'; s.textContent = 'SHARE #' + card.n + ' ON X';
+    s.href = 'https://x.com/intent/post?text=' + encodeURIComponent(shareText(card));
+    s.target = '_blank'; s.rel = 'noopener';
+    s.onclick = () => copyShareText(card);
+    cardButtonsEl.appendChild(s);
+  }
+}
 const DEMO = new URLSearchParams(location.search).get('demo') === '1';
 
 const avatarA = new Image();
@@ -62,44 +342,92 @@ avatarA.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKgAAACcCAYAAADroOA
 const avatarB = new Image();
 avatarB.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKgAAACcCAYAAADroOAPAAAFHElEQVR4nO3dQW7bMBCF4aToLijgfZH75Ag9Yo+Q+xTdGyiyTjcVYKimJFoc8j3O/62IWTRjmqL5Iqt5ehrs4/318+P99fNsHdtc5/nLyB9+OwFnxtjmPM/Po35wqxf+8vZr2Gtw4D7PQ3dQYM+wBXrvinx5+/VcW4/qbxbM80muh3c3rvPcbQeNfsG1/36rN2xUvURtns/qskBbpchWqXNUP7O+rkjhZ4tRHxOlc5PCx9YZaq8r+nxKioe08AXaKkW2Sp2j+pn1dZX6seMSJlzqJWr9nDX9R7zKr0tam/V1rU2d4hn3GUeaNsWjD1I8Ups2xVMnxVdRS8HU29ajfO31g6a62hLr/T5O8Y16xn3GI9h/ox598I164A77b9RTJ62HUkuj1LfrvXVL8cuL7X01fv/xp6quRq3/3u/j1PfiL5dL1VghKTv2H2nae/G1O8zvn9+COnmMS//ci0dq096Lv16v/9Wv12uxrpaaXfpf12yNSp2Xy+Xz9py2V1dLzS79R+mW4qO1SrWj0rF7/1GmSPG1aVctHbv3H8k+xUfvGNHp2L1/UjxSs0/xtWlXLR2797+u2VJLu2rp2L3/KM13UJUvGaCvqPe96QJ1uWetloLd+49M983OEC733GuR4h/T6nxKioe0ZgvU5Z61Wgp2798u3bvcs1ZLwe79W4QkoDVSvEAKdu+fFL/BPQW7919CikcKpPidOv2T4knBE/RPikdKpHiBFOzePyl+g3sKdu+/hBSPFEjxO3X6J8WTgifoPyrFN38uXvrqQZio953n4gVSsHv/kXgufgcpfhvPxSM1novfqdO/aVqvRQqeu/8o0/zvdstZ6+XtKvHvjPq5o/qPMkWKb5WOR/Xp3n8k+xRf4vJ/vJe49E+KR2r2Kb5VOh7Vp3v/65otl3v0o/p07z/K9H8vvpRqXdKuWv+930f+Xjzjw+MRhp0hRr9w1Bn1CUiKhzT+Xjz1Q/V1LQ211Ex9u97b8Hvxpasz9VXbkfr8W51BFZLsTGMHElfJEW4Tq05lh9xjtYMiH5sFqpZq3evrGhpRS7XudXU2Oyg09L4ArBaoQvKdaVxrxG8JbM4ijh9PymrPobXz3+qca7WDIh+bBaqWgt3r69oefktwkFoKdq/XIiT94/prETejFvRRkgtUIeEyjhvXkDsrsGvOrfZ8KrmDAgu5BaqWdqnzHYC71NIu9bb1o4bvoKR1bOG5eMbdxzV4Lh5dkeIxFZ6Lp961vq7JU0uX1PvUjxr+XDzmdnbXJMUzDhu3QIpHCL5RjxRI8dRD6uuaLbV0Sb1t/SxSPKqUdseoXZMUz/jweARSPA4Zda4kxUMaKZ76ofq6loZa6qS+Xe+Nj3hII8UzPjwegRSPQ0jxwB2keOqH6utaGmoplfp2vbfh9+JTX53CVN4XyTOoQmLNPFYicZXcUp2oLFR2zoXkDgos5BaoWnrNVl/XUKCWXrPVVQxP8SVczX2oz7PcR/wWhYQ709iB9NVzy21i1anvnAurHRT52CxQtbTrXl/X0Iha2nWvq5PdQV0n1I36PEsuUIWEm3msRO4sojpRWaidTyV3UGAht0DV0m62+rqGArW0m62uQvZefLTSbuFSz0LuI/7pKVdKfUSm+ZG7OqMnyn1HyjY/kjsosJBboKTUbcyPiCwp9VFZ5kduBwVuSS7QTCn1EZnmR+7MkS2l1so2P5I7KLCQW6Ck1G3Mj4gsKfVRzA8AAAAAAAAAAAAAAHjEX7Uv/0zW7fFnAAAAAElFTkSuQmCC';
 
-let state = 'title'; // title | play | over
-let frame = 0, speed = 5, dist = 0, sqk = 0, blocks = 0;
-let py = GROUND - 72, vy = 0, grounded = true, bob = 0;
+let state = 'title'; // title | play | over | win
+let frame = 0, speed = 8, dist = 0, sqk = 0, blocks = 0, speedLevel = 0;
+let py = GROUND - 72, vy = 0, grounded = true, bob = 0, jumps = 0;
 let obstacles = [], coins = [], floats = [], flash = '', flashT = 0;
 let overT = 0;
 
 function reset() {
-  frame = 0; speed = 5; dist = 0; sqk = 0; blocks = 0;
-  py = GROUND - 72; vy = 0; grounded = true;
+  frame = 0; speed = 8; dist = 0; sqk = 0; blocks = 0; speedLevel = 0;
+  py = GROUND - 72; vy = 0; grounded = true; jumps = 0;
   obstacles = []; coins = []; floats = []; flash = ''; flashT = 0; overT = 0;
+  cardsThisRun = []; lastMilestoneCount = 0;
 }
 function start() {
   reset();
+  winT = 0;
+  snapshotLiveStart();
+  if (!liveStart) fetchLive().then(() => { if (state === 'play') snapshotLiveStart(); });
   state = 'play';
   titleEl.classList.add('hidden');
   overEl.classList.add('hidden');
+  if (winEl) winEl.classList.add('hidden');
 }
 function gameOver() {
   state = 'over'; overT = 0;
   finalScoreEl.textContent = sqk.toLocaleString() + ' SQK';
   const best = Math.max(getBest(), sqk); setBest(best);
-  finalStatsEl.textContent = 'blocks mined: ' + blocks + ' · distance: ' + Math.floor(dist) + 'm · best: ' + best.toLocaleString() + ' SQK';
+  const liveLine = liveStart
+    ? ' · live: block #' + liveStart.block + ' → #' + (live.block != null ? live.block : liveStart.block) + ' · live rounds survived: ' + liveBlocksSettled + ' · hamster +' + liveGainM.toFixed(1) + 'm'
+    : ' · live: OFFLINE (no live data this run)';
+  finalStatsEl.textContent = 'blocks mined: ' + blocks + ' · distance: ' + Math.floor(dist) + 'm · best: ' + best.toLocaleString() + ' SQK' + liveLine;
+  issueLatestCard();
+  renderCardButtons();
   overEl.classList.remove('hidden');
+}
+function gameWin() {
+  if (state !== 'play') return;
+  state = 'win'; winT = 0;
+  stopLivePoll();
+  winScoreEl.textContent = sqk.toLocaleString() + ' SQK';
+  const best = Math.max(getBest(), sqk); setBest(best);
+  winStatsEl.textContent = 'blocks mined: ' + blocks + ' · distance: ' + Math.floor(dist) + 'm · best: ' + best.toLocaleString() + ' SQK'
+    + ' · live: block #' + liveStart.block + ' → #' + live.block + ' settled · hamster +' + liveGainM.toFixed(1) + 'm while you ran';
+  if (winEl) winEl.classList.remove('hidden');
 }
 function jump() {
   if (state === 'title') { start(); return; }
   if (state === 'over') { start(); return; }
-  if (grounded) { vy = -17; grounded = false; }
+  if (state === 'win') { start(); return; }
+  // single jump only, per user: no double jump. The other jump fixes stay:
+  // floatier jump (vy -20 / gravity 0.6, ~67 frames in the air), shorter
+  // and narrower SCAM blocks (32-56 high, 28-44 wide), narrower hitbox.
+  if (grounded) { vy = -20; grounded = false; }
 }
 addEventListener('keydown', e => {
   if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
 });
-addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+addEventListener('pointerdown', e => {
+  if (e.target && e.target.closest && e.target.closest('button, a')) return; // don't restart when tapping a card button or share link
+  e.preventDefault(); jump();
+});
 
 function spawnObstacle() {
-  const h = 40 + Math.random() * 32;
-  const w = 34 + Math.random() * 26;
-  obstacles.push({ x: W + 20, y: GROUND - h, w, h });
+  const r = Math.random();
+  if (r < 0.3) {
+    // BIRD, harder: flies LOWER (baseY GROUND-180, was -200) and bobs
+    // further and faster (±35px at 0.12, was ±28 at 0.08), so its lowest
+    // dip comes within ~19px of the player's head on the ground — passing
+    // under is still always possible, but the margin is much tighter.
+    // (Checked: worst-case bird bottom is 383px, player top on the ground
+    // is 402px, so standing still never dies. ±45px would have killed you
+    // on the ground, so it is NOT used.) Birds also fly faster than the
+    // ground scrolls (+1.5px/frame, see move loop).
+    const w = 50 + Math.random() * 14, h = 30 + Math.random() * 8;
+    const baseY = GROUND - 180 + Math.random() * 30;
+    obstacles.push({ x: W + 20, y: baseY, baseY, phase: Math.random() * 6.28, w, h, type: 'bird' });
+  } else if (r < 0.6) {
+    // WORM, harder: longer (80-120px, was 60-80) so it takes longer to
+    // clear in one jump, and it crawls towards you (+1px/frame, see move
+    // loop) instead of just riding the scroll.
+    const h = 28 + Math.random() * 8, w = 80 + Math.random() * 40;
+    obstacles.push({ x: W + 20, y: GROUND - h, w, h, type: 'worm' });
+  } else {
+    const h = 32 + Math.random() * 24;
+    const w = 28 + Math.random() * 16;
+    obstacles.push({ x: W + 20, y: GROUND - h, w, h, type: 'scam' });
+  }
 }
 function spawnCoin() {
   const air = Math.random() < 0.5;
@@ -145,15 +473,43 @@ function drawPlayer() {
 }
 function drawObstacles() {
   for (const o of obstacles) {
-    ctx.fillStyle = '#ff3b30';
-    ctx.fillRect(o.x, o.y, o.w, o.h);
-    ctx.strokeStyle = '#7a0d08';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(o.x, o.y, o.w, o.h);
-    ctx.fillStyle = '#ff3b30';
-    ctx.font = 'bold 13px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('SCAM', o.x + o.w / 2, o.y - 8);
+    if (o.type === 'bird') {
+      // dark bird with flapping wings (frame-based flap)
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath(); ctx.ellipse(o.x + o.w / 2, o.y + o.h / 2, o.w / 2, o.h / 2, 0, 0, Math.PI * 2); ctx.fill();
+      const flap = Math.sin(frame * 0.4) * 10;
+      ctx.beginPath(); ctx.moveTo(o.x + 8, o.y + o.h / 2); ctx.lineTo(o.x + o.w / 2, o.y - 14 + flap); ctx.lineTo(o.x + o.w - 8, o.y + o.h / 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(o.x + o.w - 8, o.y + o.h / 2 - 4, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e8eefc';
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BIRD', o.x + o.w / 2, o.y - 8);
+    } else if (o.type === 'worm') {
+      // wriggling worm: 4 segments, each bobbing on a travelling sine wave
+      ctx.fillStyle = '#7dff8a';
+      const seg = o.w / 4;
+      for (let i = 0; i < 4; i++) {
+        const wy = o.y + o.h / 2 + Math.sin(frame * 0.3 + i * 1.2) * 5;
+        ctx.beginPath(); ctx.arc(o.x + seg * (i + 0.5), wy, o.h / 2 - 2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath(); ctx.arc(o.x + o.w - 8, o.y + o.h / 2 - 4, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#7dff8a';
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('WORM', o.x + o.w / 2, o.y - 8);
+    } else {
+      ctx.fillStyle = '#ff3b30';
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      ctx.strokeStyle = '#7a0d08';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(o.x, o.y, o.w, o.h);
+      ctx.fillStyle = '#ff3b30';
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('SCAM', o.x + o.w / 2, o.y - 8);
+    }
   }
 }
 function drawCoins() {
@@ -175,7 +531,14 @@ function drawHUD() {
   ctx.fillStyle = day ? '#0a1030' : '#dbe4ff';
   ctx.font = 'bold 17px "Courier New", monospace';
   ctx.textAlign = 'right';
-  ctx.fillText('BLOCKS ' + blocks + ' · ' + Math.floor(dist) + 'm · ' + (day ? 'DAY' : 'NIGHT'), W - 20, 38);
+  ctx.fillText('BLOCKS ' + blocks + ' · ' + Math.floor(dist) + 'm · SPEED ' + speed.toFixed(1) + ' · ' + (day ? 'DAY' : 'NIGHT'), W - 20, 38);
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(
+    liveStart
+      ? ('LIVE ROUNDS ' + liveBlocksSettled + ' · NEXT #' + liveTargetBlock + ' · NOW #' + (live.block != null ? live.block : liveStart.block) + ' · HAMSTER +' + liveGainM.toFixed(1) + 'm · MILESTONE ' + lastMilestoneCount)
+      : (live.ok ? 'LIVE #' + (live.block != null ? live.block : '—') + ' · press SPACE to race' : 'LIVE OFFLINE'),
+    W - 20, 62);
   if (flashT > 0) {
     ctx.fillStyle = day ? '#7a4d00' : '#ffd23f';
     ctx.font = 'bold 30px "Courier New", monospace';
@@ -199,25 +562,44 @@ function step() {
     if (DEMO && overT > 90) start();
     return;
   }
+  if (state === 'win') {
+    winT++;
+    drawBackground(); drawPlayer();
+    if (DEMO && winT > 90) start();
+    return;
+  }
   frame++;
   dist += speed / 10;
-  if (speed < 12) speed += 0.001;
+  // Speed ramps BY DISTANCE, not by time: start 8.0, +0.5 every 250m,
+  // capped at 13.0 (reached at 2,500m, never faster).
+  // The old design only sped up at 500m, which at 2.5 took ~33 seconds to
+  // reach — so a normal run never felt faster at all. Now the first speed-up
+  // comes after ~10 seconds, then every ~250m.
+  const level = Math.floor(dist / 250);
+  if (level > speedLevel) {
+    speedLevel = level;
+    speed = Math.min(13, 8 + speedLevel * 0.5);
+    flash = 'SPEED UP: ' + speed.toFixed(1);
+    flashT = 90;
+  }
   const nextBlockAt = (blocks + 1) * 500;
   if (dist >= nextBlockAt) {
     blocks++;
     sqk += 6900;
-    flash = 'BLOCK MINED +6,900 SQK';
+    flash = 'BLOCK MINED +6,900 SQK · SPEED ' + speed.toFixed(1);
     flashT = 90;
+    checkMilestones();
   }
-  // physics
+  // physics: floatier jump (was vy -17 / gravity 0.9, ~38 frames in the air)
   if (!grounded) {
-    vy += 0.9;
+    vy += 0.6;
     py += vy;
-    if (py >= GROUND - 72) { py = GROUND - 72; vy = 0; grounded = true; }
+    if (py >= GROUND - 72) { py = GROUND - 72; vy = 0; grounded = true; jumps = 0; }
   }
-  // spawn
-  if (frame >= 120 && frame % 100 === 0) spawnObstacle();
-  if (frame % 150 === 0) spawnCoin();
+  // spawn: every 150 frames (was 200) — obstacles come closer together,
+  // so you often have two on screen at once and less recovery time.
+  if (frame >= 120 && frame % 150 === 0) spawnObstacle();
+  if (frame % 300 === 0) spawnCoin();
   // demo autopilot: jump when the obstacle will reach the player in ~6 frames,
   // so the jump arc covers the whole overlap window at any speed
   if (DEMO && grounded) {
@@ -228,6 +610,8 @@ function step() {
   const px = 120, pw = 72, ph = 72;
   for (const o of obstacles) {
     o.x -= speed;
+    if (o.type === 'bird') { o.x -= 1.5; o.y = o.baseY + Math.sin((frame + o.phase * 10) * 0.12) * 35; } // bob ±35px, faster
+    if (o.type === 'worm') o.x -= 1; // worm crawls towards you
     if (px + 16 < o.x + o.w && px + pw - 16 > o.x && py + 14 < o.y + o.h && py + ph > o.y) {
       gameOver();
       return;
@@ -245,6 +629,7 @@ function step() {
   floats = floats.filter(f => f.y > 0);
   obstacles = obstacles.filter(o => o.x + o.w > -20);
   coins = coins.filter(c => c.x + c.s > -20 && !c.taken);
+  checkMilestones(); // coins (+500) can also push SQK over a 6,900 milestone
   drawBackground();
   drawCoins();
   drawObstacles();
