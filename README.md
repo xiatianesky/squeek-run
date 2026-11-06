@@ -35,3 +35,5 @@ Open `index.html` in a browser, or host it statically. No install, no build step
 ## Credit
 
 Fan game for Squeekchain. Hamster art in the style of @squeekchain's pixel hamster.
+
+squeekchain-project: a418a29c-2c89-414e-834a-e4f7b45d2698
