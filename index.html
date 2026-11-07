@@ -148,7 +148,7 @@
   var CORE_URL = 'https://api.squeekchain.com/v1/core';
   // Set this to the Worker URL after `wrangler deploy`, e.g.
   // 'https://squeek-silo.you.workers.dev'. Empty = leaderboard disabled.
-  var LEADERBOARD_API = '';
+  var LEADERBOARD_API = 'https://squeek-silo.xiawowosky.workers.dev';
   // Address of your deployed SqueekSiloBadge contract (Sepolia).
   var BADGE_CONTRACT = '';
   var badgeMeta = document.querySelector('meta[name="squeek-silo-contract"]');
@@ -327,7 +327,14 @@
     })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
-        if (!res.ok) { elVLink.textContent = 'score rejected: ' + (res.j && res.j.error || 'unknown'); return; }
+        if (!res.ok) {
+          var why = (res.j && res.j.error) || 'unknown';
+          if (why === 'run_too_short') why = 'run was too short to rank';
+          else if (why === 'stale_round') why = 'that round already closed';
+          else if (why === 'rate_limited') why = 'too many submissions, wait a minute';
+          elVLink.textContent = 'not ranked: ' + why;
+          return;
+        }
         lastRank = res.j.rank;
         elVLink.textContent = 'verified on the server · rank #' + res.j.rank + ' of round ' + roundUsed;
       })
@@ -778,7 +785,8 @@
   }
 
   async function refreshRemaining() {
-    if (!BADGE_CONTRACT || !window.ethereum) return;
+    if (!BADGE_CONTRACT) { setMintNote('badge contract not configured yet — the game works, the 999 badges go live once the contract is deployed'); return; }
+    if (!window.ethereum) { setMintNote('no browser wallet found — the badge needs one'); return; }
     try {
       var res = await window.ethereum.request({
         method: 'eth_call',

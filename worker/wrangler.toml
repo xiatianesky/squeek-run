@@ -7,7 +7,7 @@ compatibility_date = "2025-01-01"
 # then paste the id below.
 [[kv_namespaces]]
 binding = "LEADERBOARD"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "5382032eeb014a2d9485ae56249fe399"
 
 [vars]
 # Address of the SqueekSiloBadge contract you deploy (Sepolia).

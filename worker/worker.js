@@ -48,6 +48,7 @@ function digestFor(chainId, contract, player, round, score, blocks) {
 async function signRun(env, player, round, score, blocks) {
   if (!env.SIGNER_PRIVATE_KEY) return null;
   if (!env.CONTRACT_ADDRESS) return null;
+  if (/^0x0{40}$/i.test(env.CONTRACT_ADDRESS)) return null; // not deployed yet
   if (typeof player !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(player)) return null;
   try {
     const chainId = Number(env.CHAIN_ID || DEFAULT_CHAIN_ID);
@@ -143,7 +144,8 @@ async function handleScore(req, env) {
 
   if (![round, seed, score, blocks, waves, ticks].every(Number.isFinite)) return json({ error: "bad_fields" }, 400);
   if (score < 0 || blocks < 0 || blocks > 5000 || waves < 0 || waves > 5000) return json({ error: "bad_fields" }, 400);
-  if (ticks < 60 || ticks > MAX_TICKS) return json({ error: "bad_ticks" }, 400);
+  if (ticks > MAX_TICKS) return json({ error: "bad_ticks" }, 400);
+  if (ticks < 30) return json({ error: "run_too_short" }, 400);
   if (seed !== round) return json({ error: "seed_mismatch" }, 400);
 
   var chain = await currentRound();
