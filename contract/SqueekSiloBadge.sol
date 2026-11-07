@@ -168,38 +168,63 @@ contract SqueekSiloBadge is ERC721, Ownable {
     function _squeek(string memory fur, string memory furDark, uint256 x, uint256 y, uint256 w, uint256 h)
         private pure returns (string memory)
     {
-        string memory cx = (x + w / 2).toString();
-        string memory ey = (y + h * 42 / 100).toString();
-        // ears
-        string memory out = string.concat(
+        return string.concat(_ears(furDark, x, y, w, h), _face(fur, x, y, w, h), _whiskers(x, y, w, h));
+    }
+
+    function _ears(string memory furDark, uint256 x, uint256 y, uint256 w, uint256 h)
+        private pure returns (string memory)
+    {
+        return string.concat(
             "<circle cx='", (x + w / 5).toString(), "' cy='", (y + h / 12).toString(), "' r='36' fill='", furDark, "'/>",
             "<circle cx='", (x + w - w / 5).toString(), "' cy='", (y + h / 12).toString(), "' r='36' fill='", furDark, "'/>",
             "<circle cx='", (x + w / 5).toString(), "' cy='", (y + h / 12).toString(), "' r='17' fill='#ffb3c7'/>",
-            "<circle cx='", (x + w - w / 5).toString(), "' cy='", (y + h / 12).toString(), "' r='17' fill='#ffb3c7'/>",
-            // body
-            "<rect x='", x.toString(), "' y='", y.toString(), "' width='", w.toString(), "' height='", h.toString(),
-            "' rx='62' fill='", fur, "'/>",
-            // cheeks
-            "<circle cx='", (x + w * 28 / 100).toString(), "' cy='", (y + h * 72 / 100).toString(), "' r='19' fill='#ff7896' opacity='0.45'/>",
-            "<circle cx='", (x + w * 72 / 100).toString(), "' cy='", (y + h * 72 / 100).toString(), "' r='19' fill='#ff7896' opacity='0.45'/>",
-            // eyes
-            "<circle cx='", (x + w / 3).toString(), "' cy='", ey, "' r='14' fill='#0b0f24'/>",
-            "<circle cx='", (x + w - w / 3).toString(), "' cy='", ey, "' r='14' fill='#0b0f24'/>",
-            "<circle cx='", (x + w / 3 + 5).toString(), "' cy='", (y + h * 42 / 100 - 5).toString(), "' r='4' fill='#ffffff'/>",
-            "<circle cx='", (x + w - w / 3 + 5).toString(), "' cy='", (y + h * 42 / 100 - 5).toString(), "' r='4' fill='#ffffff'/>",
-            // nose + whiskers
-            "<circle cx='", cx, "' cy='", (y + h * 66 / 100).toString(), "' r='8' fill='#3a2140'/>",
-            "<path d='M", (x + w * 10 / 100).toString(), " ", (y + h * 62 / 100).toString(),
-            " L", (x + w * 30 / 100).toString(), " ", (y + h * 65 / 100).toString(),
-            " M", (x + w * 10 / 100).toString(), " ", (y + h * 76 / 100).toString(),
-            " L", (x + w * 30 / 100).toString(), " ", (y + h * 73 / 100).toString(),
-            " M", (x + w * 90 / 100).toString(), " ", (y + h * 62 / 100).toString(),
-            " L", (x + w * 70 / 100).toString(), " ", (y + h * 65 / 100).toString(),
-            " M", (x + w * 90 / 100).toString(), " ", (y + h * 76 / 100).toString(),
-            " L", (x + w * 70 / 100).toString(), " ", (y + h * 73 / 100).toString(),
-            "' stroke='#0b0f24' stroke-width='2' opacity='0.35' fill='none'/>"
+            "<circle cx='", (x + w - w / 5).toString(), "' cy='", (y + h / 12).toString(), "' r='17' fill='#ffb3c7'/>"
         );
-        return out;
+    }
+
+    function _face(string memory fur, uint256 x, uint256 y, uint256 w, uint256 h)
+        private pure returns (string memory)
+    {
+        string memory ey = (y + h * 42 / 100).toString();
+        string memory cheeks = string.concat(
+            "<circle cx='", (x + w * 28 / 100).toString(), "' cy='", (y + h * 72 / 100).toString(), "' r='19' fill='#ff7896' opacity='0.45'/>",
+            "<circle cx='", (x + w * 72 / 100).toString(), "' cy='", (y + h * 72 / 100).toString(), "' r='19' fill='#ff7896' opacity='0.45'/>"
+        );
+        string memory eyes = string.concat(
+            "<circle cx='", (x + w / 3).toString(), "' cy='", ey, "' r='14' fill='#0b0f24'/>",
+            "<circle cx='", (x + w - w / 3).toString(), "' cy='", ey, "' r='14' fill='#0b0f24'/>"
+        );
+        string memory glints = string.concat(
+            "<circle cx='", (x + w / 3 + 5).toString(), "' cy='", (y + h * 42 / 100 - 5).toString(), "' r='4' fill='#ffffff'/>",
+            "<circle cx='", (x + w - w / 3 + 5).toString(), "' cy='", (y + h * 42 / 100 - 5).toString(), "' r='4' fill='#ffffff'/>"
+        );
+        return string.concat(
+            "<rect x='", x.toString(), "' y='", y.toString(), "' width='", w.toString(), "' height='", h.toString(),
+            "' rx='62' fill='", fur, "'/>", cheeks, eyes, glints
+        );
+    }
+
+    function _whiskers(uint256 x, uint256 y, uint256 w, uint256 h) private pure returns (string memory) {
+        string memory strip = "' stroke='#0b0f24' stroke-width='2' opacity='0.35' fill='none'/>";
+        string memory nose =
+            string.concat("<circle cx='", (x + w / 2).toString(), "' cy='", (y + h * 66 / 100).toString(), "' r='8' fill='#3a2140'/>");
+        string memory wh1 = string.concat(
+            "<path d='M", (x + w * 10 / 100).toString(), " ", (y + h * 62 / 100).toString(),
+            " L", (x + w * 30 / 100).toString(), " ", (y + h * 65 / 100).toString(), strip
+        );
+        string memory wh2 = string.concat(
+            "<path d='M", (x + w * 10 / 100).toString(), " ", (y + h * 76 / 100).toString(),
+            " L", (x + w * 30 / 100).toString(), " ", (y + h * 73 / 100).toString(), strip
+        );
+        string memory wh3 = string.concat(
+            "<path d='M", (x + w * 90 / 100).toString(), " ", (y + h * 62 / 100).toString(),
+            " L", (x + w * 70 / 100).toString(), " ", (y + h * 65 / 100).toString(), strip
+        );
+        string memory wh4 = string.concat(
+            "<path d='M", (x + w * 90 / 100).toString(), " ", (y + h * 76 / 100).toString(),
+            " L", (x + w * 70 / 100).toString(), " ", (y + h * 73 / 100).toString(), strip
+        );
+        return string.concat(nose, wh1, wh2, wh3, wh4);
     }
 
     function _accessory(uint8 a, uint8 tier) private pure returns (string memory) {
