@@ -1,0 +1,19 @@
+name = "squeek-silo"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Create the namespace with:
+#   wrangler kv namespace create LEADERBOARD
+# then paste the id below.
+[[kv_namespaces]]
+binding = "LEADERBOARD"
+id = "PASTE_KV_NAMESPACE_ID_HERE"
+
+[vars]
+# Address of the SqueekSiloBadge contract you deploy (Sepolia).
+CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"
+CHAIN_ID = "11155111"
+
+# The badge signing key is a secret, never a var:
+#   wrangler secret put SIGNER_PRIVATE_KEY
+# Its address must be the `signer` passed to the contract constructor.
