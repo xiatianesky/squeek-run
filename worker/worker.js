@@ -18,11 +18,86 @@ const MAX_PER_MINUTE = 6;
 const TOP_N = 50;
 const STATUS_URL = "https://api.squeekchain.com/v1/status";
 
-// The badge contract. The worker signs (chainId, contract, player, round, score, blocks)
-// with EIP-191 so the contract can prove a mint came from a replayed run.
+// The badge contract. The worker signs (chainId, contract, player, round, score,
+// blocks, squeekId) with EIP-191 so the contract can prove a mint came from a
+// replayed run. squeekId is the official Squeek the player names for the badge
+// trait; 0 means none. It is signed too, so the trait cannot be swapped after
+// the fact. This must stay byte-identical to SqueekSiloBadge.digestFor.
 const DEFAULT_CHAIN_ID = 11155111; // Sepolia, the Squeekchain deployment target
+const RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+const SQUEEK_NFT_SEL = "0x8178031e"; // SQUEEK_NFT(), only the Squeekchain build has it
 
-function digestFor(chainId, contract, player, round, score, blocks) {
+function digestFor(chainId, contract, player, round, score, blocks, squeekId) {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "uint256" },
+        { type: "address" },
+        { type: "address" },
+        { type: "uint32" },
+        { type: "uint32" },
+        { type: "uint16" },
+        { type: "uint32" }
+      ],
+      [
+        BigInt(chainId),
+        getAddress(contract),
+        getAddress(player),
+        round,
+        score,
+        blocks,
+        squeekId
+      ]
+    )
+  );
+}
+
+// v2 binds the badged Squeek; v1 did not have that parameter. The deployed
+// bytecode decides which one to sign, so the worker and the contract can never
+// drift during a redeploy.
+async function digestForRun(env, contract, player, round, score, blocks, squeekId) {
+  const chainId = Number(env.CHAIN_ID || DEFAULT_CHAIN_ID);
+  const v2 = await isSqueekAware(env, contract);
+  if (v2 === null) return { digest: null, abi: null };
+  const digest = v2
+    ? digestFor(chainId, contract, player, round, score, blocks, squeekId)
+    : digestForV1(chainId, contract, player, round, score, blocks);
+  return { digest: digest, abi: v2 ? "v2" : "v1" };
+}
+
+var versionCache = { address: "", v2: null, at: 0 };
+
+async function isSqueekAware(env, contract) {
+  var now = Date.now();
+  if (versionCache.address === contract && now - versionCache.at < 600000) return versionCache.v2;
+  var v2 = null;
+  try {
+    var r = await fetch(env.RPC_URL || RPC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to: contract, data: SQUEEK_NFT_SEL }, "latest"]
+      })
+    });
+    var j = await r.json();
+    if (typeof j.result === "string" && j.result.length >= 66) {
+      // The Squeek-aware build answers with the collection address.
+      v2 = !/^0+$/.test(j.result.slice(2, 66));
+    } else if (j.error) {
+      // Older bytecode has no SQUEEK_NFT() at all, so the call reverts.
+      v2 = false;
+    }
+  } catch (e) {
+    v2 = null;
+  }
+  versionCache = { address: contract, v2: v2, at: now };
+  return v2;
+}
+
+function digestForV1(chainId, contract, player, round, score, blocks) {
   return keccak256(
     encodeAbiParameters(
       [
@@ -33,19 +108,12 @@ function digestFor(chainId, contract, player, round, score, blocks) {
         { type: "uint32" },
         { type: "uint16" }
       ],
-      [
-        BigInt(chainId),
-        getAddress(contract),
-        getAddress(player),
-        round,
-        score,
-        blocks
-      ]
+      [BigInt(chainId), getAddress(contract), getAddress(player), round, score, blocks]
     )
   );
 }
 
-async function signRun(env, player, round, score, blocks) {
+async function signRun(env, player, round, score, blocks, squeekId) {
   if (!env.SIGNER_PRIVATE_KEY) return null;
   if (!env.CONTRACT_ADDRESS) return null;
   if (/^0x0{40}$/i.test(env.CONTRACT_ADDRESS)) return null; // not deployed yet
@@ -53,9 +121,24 @@ async function signRun(env, player, round, score, blocks) {
   try {
     const chainId = Number(env.CHAIN_ID || DEFAULT_CHAIN_ID);
     const account = privateKeyToAccount(env.SIGNER_PRIVATE_KEY);
-    const digest = digestFor(chainId, env.CONTRACT_ADDRESS, player, round, score, blocks);
-    const sig = await account.signMessage({ message: { raw: digest } });
-    return { sig, signer: account.address, chainId, contract: getAddress(env.CONTRACT_ADDRESS) };
+    const run = await digestForRun(
+      env,
+      env.CONTRACT_ADDRESS,
+      player,
+      round,
+      score,
+      blocks,
+      squeekId
+    );
+    if (!run.digest) return null;
+    const sig = await account.signMessage({ message: { raw: run.digest } });
+    return {
+      sig,
+      signer: account.address,
+      chainId,
+      contract: getAddress(env.CONTRACT_ADDRESS),
+      abi: run.abi
+    };
   } catch (e) {
     return null;
   }
@@ -73,6 +156,14 @@ function json(body, status = 200) {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...CORS }
   });
+}
+
+// The official Squeek NFT ids run 1..9999. 0 means "no Squeek named".
+function readSqueekId(raw) {
+  if (raw == null || raw === "") return 0;
+  var id = parseInt(raw, 10);
+  if (!Number.isFinite(id) || id < 0 || id > 9999) return null;
+  return id;
 }
 
 function cleanName(raw) {
@@ -183,8 +274,10 @@ async function handleScore(req, env) {
 
   // A verified run can be minted as a badge, if the owner configured a signer.
   var badge = null;
+  var squeekId = readSqueekId(body.squeekId);
+  if (squeekId === null) return json({ error: "bad_squeek_id" }, 400);
   if (typeof body.player === "string") {
-    var signed = await signRun(env, body.player, round, st.score, st.blocks);
+    var signed = await signRun(env, body.player, round, st.score, st.blocks, squeekId);
     if (signed) badge = signed;
   }
 
@@ -229,9 +322,18 @@ async function handleBadge(req, env) {
     return json({ error: "score_mismatch", recomputed: { score: st.score, blocks: st.blocks } }, 400);
   }
 
-  var signed = await signRun(env, body.player, round, st.score, st.blocks);
+  var squeekId = readSqueekId(body.squeekId);
+  if (squeekId === null) return json({ error: "bad_squeek_id" }, 400);
+
+  var signed = await signRun(env, body.player, round, st.score, st.blocks, squeekId);
   if (!signed) return json({ error: "badge_not_configured" }, 503);
-  return json({ ok: true, badge: signed, score: st.score, blocks: st.blocks });
+  return json({
+    ok: true,
+    badge: signed,
+    score: st.score,
+    blocks: st.blocks,
+    squeekId: signed.abi === "v2" ? squeekId : 0
+  });
 }
 
 async function handleLeaderboard(url, env) {

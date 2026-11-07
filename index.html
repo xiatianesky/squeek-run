@@ -386,102 +386,109 @@
 
   var clock = 0;   // frame counter: blink / idle animation
 
-  // One Squeek. The block IS the hamster: ears, eyes, nose, whiskers, and a
-  // trait that grows with the level, so a tall stack reads as a colony.
+  // The block IS the Squeek: the official 22x14 dot-matrix face from
+  // squeekchain.com, drawn cell by cell so it reads as a colony in the silo.
+  // Level comes from the fur ramp; the closed variant gives it a blink.
+  var SQEEK_OPEN = (function () {
+    var rows = [
+      '....ooo.......ooo.....',
+      '...ooooo.....ooooo....',
+      '...ooooooooooooooo....',
+      '..ooooooooooooooooo...',
+      '..oooo.ooooooo.oooo...',
+      '..ooo...ooooo...ooo...',
+      '..ooo...ooooo...ooo...',
+      '.oooo...ooooo...oooo..',
+      'ooooo...ooooo...ooooo.',
+      'ooooo...ooooo...ooooo.',
+      'oooooo.ooooooo.oooooo.',
+      '.ooooooooooooooooooo..',
+      '...ooooooooooooooo....',
+      '.....ooooooooooo......'
+    ];
+    var out = [];
+    for (var r = 0; r < rows.length; r++) {
+      for (var c = 0; c < rows[r].length; c++) {
+        if (rows[r].charAt(c) === 'o') out.push([c, r]);
+      }
+    }
+    return out;
+  })();
+  var SQEEK_SHUT = (function () {
+    var rows = [
+      '....ooo.......ooo.....',
+      '...ooooo.....ooooo....',
+      '...ooooooooooooooo....',
+      '..ooooooooooooooooo...',
+      '..ooooooooooooooooo...',
+      '..ooooooooooooooooo...',
+      '..ooooooooooooooooo...',
+      '.oooo...ooooo...oooo..',
+      'ooooooooooooooooooooo.',
+      'ooooooooooooooooooooo.',
+      'ooooooooooooooooooooo.',
+      '.ooooooooooooooooooo..',
+      '...ooooooooooooooo....',
+      '.....ooooooooooo......'
+    ];
+    var open = {};
+    for (var i = 0; i < SQEEK_OPEN.length; i++) open[SQEEK_OPEN[i][0] + ':' + SQEEK_OPEN[i][1]] = 1;
+    var out = [];
+    for (var r = 0; r < rows.length; r++) {
+      for (var c = 0; c < rows[r].length; c++) {
+        if (rows[r].charAt(c) === 'o' && !open[c + ':' + r]) out.push([c, r]);
+      }
+    }
+    return out;
+  })();
+
   function drawSqueek(x, y, lv, alpha, size) {
     var S = size || CELL;
-    var k = S / 40;
-    var cx = x + S / 2;
+    var u = S / 22;
+    var top = y + (S - 14 * u) / 2;
+    var blink = ((clock + lv * 23) % 210) < 7;
     ctx.save();
     ctx.globalAlpha = alpha == null ? 1 : alpha;
 
-    // ears behind the body
+    // dark plate under the ink, so the face still reads on the muck
     ctx.fillStyle = LV_DARK[lv];
-    ctx.beginPath(); ctx.arc(x + 9 * k, y + 9 * k, 5.4 * k, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 31 * k, y + 9 * k, 5.4 * k, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#ffb3c7';
-    ctx.beginPath(); ctx.arc(x + 9 * k, y + 9 * k, 2.6 * k, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 31 * k, y + 9 * k, 2.6 * k, 0, Math.PI * 2); ctx.fill();
-
-    // body
-    ctx.fillStyle = LV_DARK[lv];
-    rr(x + 1.5 * k, y + 2.5 * k, S - 3 * k, S - 4 * k, 10 * k); ctx.fill();
+    for (var i = 0; i < SQEEK_OPEN.length; i++) {
+      var a = SQEEK_OPEN[i];
+      ctx.fillRect(x + a[0] * u + u * 0.04, top + a[1] * u + u * 0.04, u * 0.92, u * 0.92);
+    }
     ctx.fillStyle = LV[lv];
-    rr(x + 3 * k, y + 4 * k, S - 6 * k, S - 7 * k, 9 * k); ctx.fill();
-
-    // cheeks
-    ctx.fillStyle = 'rgba(255,120,150,.55)';
-    ctx.beginPath(); ctx.arc(x + 11.5 * k, y + 27 * k, 3.2 * k, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 28.5 * k, y + 27 * k, 3.2 * k, 0, Math.PI * 2); ctx.fill();
-
-    // eyes, blinking on a per-level offset so the silo twinkles
-    var blink = ((clock + lv * 23) % 210) < 7;
-    if (!blink) {
-      ctx.fillStyle = '#0b0f24';
-      ctx.beginPath(); ctx.arc(x + 15 * k, y + 20.5 * k, 3.4 * k, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + 25 * k, y + 20.5 * k, 3.4 * k, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(x + 16.2 * k, y + 19.2 * k, 1.2 * k, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + 26.2 * k, y + 19.2 * k, 1.2 * k, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.strokeStyle = '#0b0f24';
-      ctx.lineWidth = 1.6 * k;
-      ctx.beginPath();
-      ctx.moveTo(x + 11.8 * k, y + 20.5 * k); ctx.lineTo(x + 18.2 * k, y + 20.5 * k);
-      ctx.moveTo(x + 21.8 * k, y + 20.5 * k); ctx.lineTo(x + 28.2 * k, y + 20.5 * k);
-      ctx.stroke();
+    for (var j = 0; j < SQEEK_OPEN.length; j++) {
+      var b = SQEEK_OPEN[j];
+      ctx.fillRect(x + b[0] * u + u * 0.14, top + b[1] * u + u * 0.14, u * 0.72, u * 0.72);
+    }
+    if (blink) {
+      for (var m = 0; m < SQEEK_SHUT.length; m++) {
+        var d = SQEEK_SHUT[m];
+        ctx.fillRect(x + d[0] * u + u * 0.14, top + d[1] * u + u * 0.14, u * 0.72, u * 0.72);
+      }
     }
 
-    // nose + whiskers
-    ctx.fillStyle = '#3a2140';
-    ctx.beginPath(); ctx.arc(cx, y + 27 * k, 1.9 * k, 0, Math.PI * 2); ctx.fill();
-    if (S <= 120) {
-      ctx.strokeStyle = 'rgba(10,16,48,.45)';
-      ctx.lineWidth = 0.9 * k;
-      ctx.beginPath();
-      ctx.moveTo(x + 6 * k, y + 24.5 * k); ctx.lineTo(x + 12 * k, y + 26 * k);
-      ctx.moveTo(x + 6 * k, y + 31 * k); ctx.lineTo(x + 12 * k, y + 30 * k);
-      ctx.moveTo(x + 34 * k, y + 24.5 * k); ctx.lineTo(x + 28 * k, y + 26 * k);
-      ctx.moveTo(x + 34 * k, y + 31 * k); ctx.lineTo(x + 28 * k, y + 30 * k);
-      ctx.stroke();
-    }
-
-    // trait that grows with the level
-    if (lv === 3) {
-      ctx.fillStyle = '#5b2a86';
-      ctx.beginPath(); ctx.arc(x + 12 * k, y + 9 * k, 1.6 * k, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + 16 * k, y + 7 * k, 1.6 * k, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + 20 * k, y + 9 * k, 1.6 * k, 0, Math.PI * 2); ctx.fill();
-    } else if (lv === 4) {
-      ctx.fillStyle = '#3b82ff';
-      ctx.fillRect(x + 5 * k, y + 33 * k, S - 10 * k, 3 * k);
-    } else if (lv === 5) {
-      ctx.fillStyle = '#0b0f24';
-      rr(x + 9 * k, y + 17 * k, 9 * k, 7 * k, 2 * k); ctx.fill();
-      rr(x + 22 * k, y + 17 * k, 9 * k, 7 * k, 2 * k); ctx.fill();
-      ctx.fillRect(x + 17 * k, y + 19 * k, 6 * k, 2 * k);
-    } else if (lv === 6) {
-      // crown: the Squeek that commits a block
+    // the level-6 crown: this is the pair that commits a block
+    if (lv === 6) {
       ctx.fillStyle = '#ffe98a';
       ctx.beginPath();
-      ctx.moveTo(x + 10 * k, y + 7 * k);
-      ctx.lineTo(x + 13 * k, y - 1 * k);
-      ctx.lineTo(x + 17 * k, y + 4 * k);
-      ctx.lineTo(x + 20 * k, y - 3 * k);
-      ctx.lineTo(x + 23 * k, y + 4 * k);
-      ctx.lineTo(x + 27 * k, y - 1 * k);
-      ctx.lineTo(x + 30 * k, y + 7 * k);
+      ctx.moveTo(x + S * 0.26, top + u * 1.2);
+      ctx.lineTo(x + S * 0.34, top - u * 1.6);
+      ctx.lineTo(x + S * 0.44, top + u * 0.2);
+      ctx.lineTo(x + S * 0.5, top - u * 2.2);
+      ctx.lineTo(x + S * 0.56, top + u * 0.2);
+      ctx.lineTo(x + S * 0.66, top - u * 1.6);
+      ctx.lineTo(x + S * 0.74, top + u * 1.2);
       ctx.closePath(); ctx.fill();
     }
 
-    // level pip, bottom-right, so the stack is still readable at a glance
     if (S >= 24 && S <= 80) {
       ctx.fillStyle = 'rgba(4,7,20,.72)';
-      ctx.beginPath(); ctx.arc(x + S - 6.5 * k, y + S - 6.5 * k, 5.4 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + S - 6.5, y + S - 6.5, 5.4 * (S / 40), 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#e8eeff';
-      ctx.font = 'bold ' + (8.5 * k).toFixed(1) + 'px "Courier New", monospace';
+      ctx.font = 'bold ' + (8.5 * (S / 40)).toFixed(1) + 'px "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(String(lv), x + S - 6.5 * k, y + S - 3.6 * k);
+      ctx.fillText(String(lv), x + S - 6.5, y + S - 3.6);
     }
     ctx.restore();
   }
@@ -725,10 +732,13 @@
   }
 
   // ---- on-chain badge ------------------------------------------------------
-  var MINT_SEL = '0x49c296ed';      // mint(uint32,uint32,uint16,bytes)
+  var MINT_SEL_V1 = '0x49c296ed';   // mint(uint32,uint32,uint16,bytes)
+  var MINT_SEL_V2 = '0xb114b9bb';   // mint(uint32,uint32,uint16,uint32,bytes)
   var REMAIN_SEL = '0x55234ec0';    // remaining()
   var SEPOLIA_HEX = '0xaa36a7';
+  var ACCOUNT_API = 'https://api.squeekchain.com/v1/accounts/';
   var mintedThisRun = false;
+  var heldSqueek = null;            // { id, level } from the official collection
 
   function pad32(hexNo0x) {
     var h = hexNo0x.replace(/^0x/, '');
@@ -736,7 +746,10 @@
     return h;
   }
 
-  function buildMintData(round, score, blocks, sig) {
+  // The worker decides which ABI the deployed contract speaks and returns it
+  // with the signature, so the page never guesses. v2 appends the Squeek id.
+  function buildMintData(round, score, blocks, squeekId, sig, abi) {
+    var v2 = abi === 'v2';
     var s2 = sig.replace(/^0x/, '');
     var bodyLen = s2.length;
     var wordsForBytes = Math.ceil(bodyLen / 64) * 64;
@@ -744,10 +757,32 @@
       pad32(round.toString(16)) +
       pad32(score.toString(16)) +
       pad32(blocks.toString(16)) +
-      pad32('80');
+      (v2 ? pad32((squeekId || 0).toString(16)) : '') +
+      pad32(v2 ? 'a0' : '80');
     var tail = pad32((bodyLen / 2).toString(16)) + s2;
     while (tail.length < 64 + wordsForBytes) tail += '0';
-    return MINT_SEL + head + tail;
+    return (v2 ? MINT_SEL_V2 : MINT_SEL_V1) + head + tail;
+  }
+
+  // GET /v1/accounts/{address} is the documented read for a wallet's Squeeks.
+  // Public, CORS-open, and read-only: it never touches the player's keys.
+  async function loadHeldSqueek(player) {
+    try {
+      var res = await fetch(ACCOUNT_API + player.toLowerCase() + '?limit=100');
+      if (!res.ok) return null;
+      var j = await res.json();
+      if (!j || j.status !== 'available' || !Array.isArray(j.tokens)) return null;
+      var best = null;
+      for (var i = 0; i < j.tokens.length; i++) {
+        var t = j.tokens[i];
+        if (t.custody !== 'wallet') continue;
+        var lv = Number(t.level) || 1;
+        if (!best || lv > best.level) best = { id: parseInt(t.tokenId, 10), level: lv };
+      }
+      return best;
+    } catch (e) {
+      return null;
+    }
   }
 
   function setMintNote(txt) {
@@ -814,6 +849,12 @@
 
       if (!(await ensureChain())) { setMintNote('switch your wallet to Sepolia to mint'); btn.disabled = false; return; }
 
+      setMintNote('reading your Squeeks from Squeekchain…');
+      heldSqueek = await loadHeldSqueek(player);
+      if (heldSqueek) {
+        setMintNote('Squeek #' + heldSqueek.id + ' · LV ' + heldSqueek.level + ' will ride on the badge');
+      }
+
       setMintNote('checking the run with the server…');
       var res = await fetch(LEADERBOARD_API + '/api/badge', {
         method: 'POST',
@@ -821,7 +862,8 @@
         body: JSON.stringify({
           round: roundUsed, seed: seed, score: st.score, blocks: st.blocks, ticks: st.tick,
           events: events.map(function (e) { return e[0] + ':' + e[1]; }).join(','),
-          player: player
+          player: player,
+          squeekId: heldSqueek ? heldSqueek.id : 0
         })
       });
       var j = await res.json();
@@ -832,7 +874,7 @@
       }
 
       setMintNote('confirm the transaction in your wallet…');
-      var data = buildMintData(roundUsed, j.score, j.blocks, j.badge.sig);
+      var data = buildMintData(roundUsed, j.score, j.blocks, j.squeekId || 0, j.badge.sig, j.badge.abi);
       var tx = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: player, to: BADGE_CONTRACT, data: data }]

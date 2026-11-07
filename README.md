@@ -63,6 +63,37 @@ not tokens, nothing is minted, nothing is bought.**
 
 The original endless runner lives at `/classic/` and keeps working unchanged.
 
+## Building on Squeekchain, the way the docs say to
+
+Squeekchain is permissionless: there is no registry to join and no separate
+chain to deploy to. The official integrations are read-only — `verifyGraph()`
+in the quickstart ends with "Everything is read-only; nothing is signed or
+sent" — so that is what this project does.
+
+| Official contract | Read | Used for |
+| --- | --- | --- |
+| `SqueekCore.state()` | `settledThroughRound`, `blockHeight` | the round a run belongs to, and the completed Squeek block height stamped into a badge |
+| `SqueekCore.configuration()` | `genesisTimestamp`, `roundDuration` | the current round, derived as `floor((t - genesis) / duration) + 1` |
+| `SqueekNFT.ownerOf/level` | ownership + merge level | a badge can carry the player's own Squeek and its real level |
+
+Addresses come from the Deployments table (release `core-sepolia-20261103`,
+revision 7, Sepolia `11155111`):
+
+- SqueekCore `0xFD6C166D4B8E2962E65746a13e5a0797CD4dE0c4`
+- SqueekNFT `0xC4C7982657f00509548F3a3a41db7FA439a6856B`
+
+`SqueekSiloBadge.mint()` calls `state()` and `configuration()` before it mints,
+so a badge cannot claim a round the chain has not reached, and it records the
+official block height in the token. If the core read ever fails, minting still
+works; the token just loses the stamp. Nothing in this repo writes to
+Squeekchain.
+
+Holder perks follow the docs' "holder experiences" pattern: connect a wallet,
+and `GET /v1/accounts/{address}` lists the Squeeks you actually hold. The
+highest-level one rides on your badge as a trait. It is cosmetic on purpose —
+the board stays identical for everyone in a round, so the leaderboard is not
+pay-to-win.
+
 ## Deploy
 
 The static game is plain files — GitHub Pages serves the repo root.
@@ -83,6 +114,27 @@ var LEADERBOARD_API = 'https://squeek-silo.<your-subdomain>.workers.dev';
 
 (or add `<meta name="squeek-silo-api" content="...">`). With it empty the game
 still plays and simply does not submit scores.
+
+### The badge contract
+
+`contract/SqueekSiloBadge.sol` is a 999-supply ERC-721 on Sepolia. Paste it into
+Remix (it imports OpenZeppelin v5.0.2 over https), compile with 0.8.24+ and
+`viaIR`, and deploy with the signer address as the only constructor argument.
+Then point both sides at it:
+
+- `index.html`: `<meta name="squeek-silo-contract" content="0x...">`
+- `worker/wrangler.toml`: `CONTRACT_ADDRESS = "0x..."`
+
+The Worker signs `(chainId, contract, player, round, score, blocks, squeekId)`
+with EIP-191 after replaying the run, and the contract only mints with that
+signature — so a badge cannot be minted for a score nobody played. Redeploying
+the contract changes the digest, so update `CONTRACT_ADDRESS` in the same pass
+and `npx wrangler deploy` again.
+
+The Worker detects which build it is talking to (`SQUEEK_NFT()` exists only in
+the current one) and signs the matching digest, so a half-finished redeploy
+cannot hand out an unusable signature. If it cannot tell, it refuses to sign
+rather than guess.
 
 ## Files
 
