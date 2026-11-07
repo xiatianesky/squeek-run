@@ -536,6 +536,13 @@
       ctx.beginPath(); ctx.moveTo(BX, BY + j * CELL); ctx.lineTo(BX + BW, BY + j * CELL); ctx.stroke();
     }
 
+    // Everything below is drawn inside the silo. A piece spawns above the top
+    // row, so without this clip it hangs over the frame.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(BX, BY, BW, BH);
+    ctx.clip();
+
     for (var c = 0; c < E.COLS; c++) {
       var col = s.cols[c];
       for (var k = 0; k < col.length; k++) {
@@ -544,16 +551,6 @@
         if (v === -1) drawMuck(x, y);
         else if (v > 0) drawSqueek(x, y, v);
       }
-    }
-
-    // rising muck line
-    if (s.water > 0) {
-      var ly = BY + BH - s.water * CELL;
-      ctx.strokeStyle = 'rgba(255,59,48,.85)';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([9, 7]);
-      ctx.beginPath(); ctx.moveTo(BX - 4, ly); ctx.lineTo(BX + BW + 4, ly); ctx.stroke();
-      ctx.setLineDash([]);
     }
 
     // ghost + falling piece
@@ -575,6 +572,18 @@
       ctx.beginPath();
       ctx.arc(BX + pop.c * CELL + CELL / 2, BY + BH - (pop.i + 1) * CELL + CELL / 2, 10 + pop.t * 3, 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // The muck line is the one element that may overhang the frame.
+    if (s.water > 0) {
+      var ly = BY + BH - s.water * CELL;
+      ctx.strokeStyle = 'rgba(255,59,48,.85)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([9, 7]);
+      ctx.beginPath(); ctx.moveTo(BX - 4, ly); ctx.lineTo(BX + BW + 4, ly); ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
