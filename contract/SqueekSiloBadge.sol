@@ -219,28 +219,49 @@ contract SqueekSiloBadge is ERC721, Ownable {
         require(!mintedRound[msg.sender][round], "one badge per run");
         require(squeekId == 0 || squeekId <= 9999, "bad squeek id");
 
-        (bool live, uint64 settled, uint64 currentRound, uint64 coreBlock) = chainState();
-        if (live) {
-            // A badge may describe the round that just closed or the one running
-            // now; never one the chain has not reached.
-            uint64 ceiling = currentRound > 0 ? currentRound : settled + 1;
-            require(round <= ceiling, "round not on chain yet");
-        }
+        _requireRoundOnChain(round);
+        _requireSignature(round, score, blocks, squeekId, sig);
+
+        uint256 id = ++totalMinted;
+        _record(id, round, score, blocks, squeekId);
+        mintedRound[msg.sender][round] = true;
+        mintedBy[msg.sender] += 1;
+        _safeMint(msg.sender, id);
+
+        Run storage run_ = runs[id];
+        emit BadgeMinted(msg.sender, id, round, score, blocks, run_.coreBlock, run_.squeekId, run_.squeekLevel);
+        return id;
+    }
+
+    // Reading the chain and the collection costs more stack than mint() can
+    // spare without the IR pipeline, so each check lives in its own frame.
+    function _requireRoundOnChain(uint32 round) private view {
+        (bool live, uint64 settled, uint64 currentRound,) = chainState();
+        if (!live) return;
+        // A badge may describe the round that just closed or the one running
+        // now; never one the chain has not reached.
+        uint64 ceiling = currentRound > 0 ? currentRound : settled + 1;
+        require(round <= ceiling, "round not on chain yet");
+    }
+
+    function _requireSignature(uint32 round, uint32 score, uint16 blocks, uint32 squeekId, bytes calldata sig)
+        private
+        view
+    {
+        if (!requireSignature) return;
+        bytes32 h = MessageHashUtils.toEthSignedMessageHash(digestFor(msg.sender, round, score, blocks, squeekId));
+        require(ECDSA.recover(h, sig) == signer, "bad signature");
+    }
+
+    function _record(uint256 id, uint32 round, uint32 score, uint16 blocks, uint32 squeekId) private {
+        (bool live,,, uint64 coreBlock) = chainState();
 
         uint8 lv = 0;
         if (squeekId > 0) {
             lv = squeekLevelOf(squeekId, msg.sender);
             require(lv > 0, "not your squeek");
         }
-        bool holder = lv > 0 || holdsSqueek(msg.sender);
 
-        if (requireSignature) {
-            bytes32 h =
-                MessageHashUtils.toEthSignedMessageHash(digestFor(msg.sender, round, score, blocks, squeekId));
-            require(ECDSA.recover(h, sig) == signer, "bad signature");
-        }
-
-        uint256 id = ++totalMinted;
         Run storage run_ = runs[id];
         run_.round = round;
         run_.score = score;
@@ -249,14 +270,8 @@ contract SqueekSiloBadge is ERC721, Ownable {
         run_.tier = uint8(_tierFor(score));
         run_.fur = uint8(round % 9);
         run_.squeekLevel = lv;
-        run_.holder = holder;
+        run_.holder = lv > 0 || holdsSqueek(msg.sender);
         run_.coreBlock = live ? coreBlock : 0;
-        mintedRound[msg.sender][round] = true;
-        mintedBy[msg.sender] += 1;
-        _safeMint(msg.sender, id);
-
-        emit BadgeMinted(msg.sender, id, round, score, blocks, runs[id].coreBlock, run_.squeekId, lv);
-        return id;
     }
 
     function _tierFor(uint32 score) private pure returns (uint256) {
