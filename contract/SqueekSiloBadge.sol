@@ -155,6 +155,7 @@ contract SqueekSiloBadge is ERC721, Ownable {
     {
         (bool ok, bytes memory data) = CORE.staticcall(abi.encodeWithSelector(ISqueekCore.state.selector));
         if (!ok || data.length < 256) return (false, 0, 0, 0);
+        live = true;
         assembly ("memory-safe") {
             settledThroughRound := mload(add(data, 0x20))
             blockHeight := mload(add(data, 0x80))
@@ -359,11 +360,15 @@ contract SqueekSiloBadge is ERC721, Ownable {
         bytes memory d = "";
         for (uint256 row = 0; row < 14; row++) {
             bytes memory cells = bytes(g[row]);
+            bytes memory rowD = "";
             for (uint256 col = 0; col < 22; col++) {
                 if (cells[col] == 0x6f) {
-                    d = abi.encodePacked(d, "M", col.toString(), " ", row.toString(), "h.8v.8h-.8z");
+                    rowD = abi.encodePacked(rowD, "M", col.toString(), " ", row.toString(), "h.8v.8h-.8z");
                 }
             }
+            // Concatenating per cell copies the whole path each time, which is
+            // quadratic in the number of lit cells; per row keeps it flat.
+            d = abi.encodePacked(d, rowD);
         }
         return string.concat(
             "<g transform='translate(50 64) scale(13.6)'><path d='", string(d),

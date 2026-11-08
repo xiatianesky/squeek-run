@@ -117,10 +117,10 @@ still plays and simply does not submit scores.
 
 ### The badge contract
 
-`contract/SqueekSiloBadge.sol` is a 999-supply ERC-721 on Sepolia. Paste it into
-Remix (it imports OpenZeppelin v5.0.2 over https), compile with 0.8.24+ and
-`viaIR`, and deploy with the signer address as the only constructor argument.
-Then point both sides at it:
+`contract/SqueekSiloBadge.sol` is a 999-supply ERC-721 on Sepolia, live at
+`0xf1a5404abd0676EBEe7b5b540236C3B76eF51565`. It imports OpenZeppelin v5.0.2
+over https and compiles on 0.8.24+ **without** `viaIR`. Deploy it with the
+signer address as the only constructor argument, then point both sides at it:
 
 - `index.html`: `<meta name="squeek-silo-contract" content="0x...">`
 - `worker/wrangler.toml`: `CONTRACT_ADDRESS = "0x..."`
@@ -135,6 +135,11 @@ The Worker detects which build it is talking to (`SQUEEK_NFT()` exists only in
 the current one) and signs the matching digest, so a half-finished redeploy
 cannot hand out an unusable signature. If it cannot tell, it refuses to sign
 rather than guess.
+
+Deployment needs ~26.04M gas: the constructor writes the 18 palette strings into
+storage, and a limit below ~25.72M reverts with `contract creation code storage
+out of gas` — which looks like a wallet failure but is not. Gas is charged on
+what is used, so give it a 34M limit.
 
 ## Files
 

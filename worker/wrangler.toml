@@ -11,7 +11,7 @@ id = "5382032eeb014a2d9485ae56249fe399"
 
 [vars]
 # Address of the SqueekSiloBadge contract you deploy (Sepolia).
-CONTRACT_ADDRESS = "0x604b1509253d18de01ddad4aa80dddff82799f21"
+CONTRACT_ADDRESS = "0xf1a5404abd0676EBEe7b5b540236C3B76eF51565"
 CHAIN_ID = "11155111"
 
 # The badge signing key is a secret, never a var:
