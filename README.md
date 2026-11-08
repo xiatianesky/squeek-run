@@ -58,8 +58,9 @@ GET  /api/round
 - touch: tap the left or right half to move, swipe down to drop
 
 Every finished run produces a **run card** you can download — same seed, same
-pieces, so the run replays exactly. Cards are game collectibles: **not NFTs,
-not tokens, nothing is minted, nothing is bought.**
+pieces, so the run replays exactly. A card is a picture, not a token: the only
+thing this game mints is the optional badge described further down, and it
+costs nothing but gas.
 
 The original endless runner lives at `/classic/` and keeps working unchanged.
 
@@ -89,10 +90,12 @@ works; the token just loses the stamp. Nothing in this repo writes to
 Squeekchain.
 
 Holder perks follow the docs' "holder experiences" pattern: connect a wallet,
-and `GET /v1/accounts/{address}` lists the Squeeks you actually hold. The
-highest-level one rides on your badge as a trait. It is cosmetic on purpose —
-the board stays identical for everyone in a round, so the leaderboard is not
-pay-to-win.
+and `GET /v1/accounts/{address}` lists the Squeeks you actually hold. You name
+one of them when you mint, and the contract reads `ownerOf` and `level` on
+chain — a token that is not yours is refused, and level 0 there means never
+merged, i.e. Level 1. The named Squeek and its level ride on the badge as
+traits. It is cosmetic on purpose — the board stays identical for everyone in a
+round, so the leaderboard is not pay-to-win.
 
 ## Deploy
 
@@ -122,6 +125,15 @@ still plays and simply does not submit scores.
 over https and compiles on 0.8.24+ **without** `viaIR`. Deploy it with the
 signer address as the only constructor argument, then point both sides at it:
 
+What it is: 999 badges, ever. One per run per address, five per address total,
+free to mint (gas only). The art is generated on chain from the official 22x14
+Squeek bitmap, and the token stores the round, score, blocks, tier and the
+official block height it was stamped with.
+
+What it is not: not an official Squeekchain product, not a claim on anything,
+not a token with a market. This is a fan game and the badge says so in its
+metadata. No `SQK` and no promise of value appears anywhere.
+
 - `index.html`: `<meta name="squeek-silo-contract" content="0x...">`
 - `worker/wrangler.toml`: `CONTRACT_ADDRESS = "0x..."`
 
@@ -140,6 +152,15 @@ Deployment needs ~26.04M gas: the constructor writes the 18 palette strings into
 storage, and a limit below ~25.72M reverts with `contract creation code storage
 out of gas` — which looks like a wallet failure but is not. Gas is charged on
 what is used, so give it a 34M limit.
+
+Two earlier Sepolia deployments are dead and must not be used:
+`0xdf2242B83Fbb0Bb93D89d757e4A546Ef35FD0eD7` and
+`0x9Fdc32B947e91CC90EAcC902F51ac9B51e79683d`. Both predate the `chainState()`
+`live` fix, so they would stamp every badge with block 0. Neither ever minted
+(`totalMinted` is 0 on both) and the Worker no longer signs for them — the
+digest binds the contract address — so `mint()` reverts. They cannot be
+removed: the contract has no `selfdestruct`, and since Cancun (EIP-6780) it
+would not delete code anyway.
 
 ## Files
 
